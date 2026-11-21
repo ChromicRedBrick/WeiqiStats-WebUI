@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="standalone-document">
+<head>
+  <script>window.GO_STATS_DATA_MODE = "public";</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>等级分工作区 · 国际围棋赛事档案</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="viewer-tokens.css">
+  <link rel="stylesheet" href="viewer.css">
+  <link rel="stylesheet" href="viewer-sgf.css">
+  <link rel="stylesheet" href="viewer-dialogs.css">
+</head>
+<body class="ratings-page">
+  <script>
+    (function () {
+      var pref = 'light';
+      try {
+        var q = new URLSearchParams(location.search).get('theme');
+        if (q === 'light' || q === 'dark' || q === 'auto') pref = q;
+        else {
+          var s = localStorage.getItem('go_viewer_theme_v1');
+          if (s === 'light' || s === 'dark' || s === 'auto') pref = s;
+        }
+      } catch (_) {}
+      var resolved = pref === 'dark' || (pref === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      document.documentElement.dataset.themePref = pref;
+      document.body.dataset.themePref = pref;
+      document.body.dataset.theme = resolved;
+      document.body.style.colorScheme = resolved;
+    })();
+  </script>
+
+  <header class="ratings-page-nav">
+    <div class="ratings-page-nav-left">
+      <a class="ratings-page-back" href="index.html">← 赛事档案</a>
+      <h1 class="ratings-page-title" id="ratingsTitle">等级分工作区</h1>
+    </div>
+    <div class="ratings-page-nav-actions">
+      <button type="button" class="btn btn-sm" id="ratingsEditToggle" hidden>编辑模式</button>
+      <button class="btn" id="btnCommand" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">搜索</button><button type="button" class="btn btn-sm" id="ratingsTheme">切换外观</button>
+    </div>
+  </header>
+
+  <main class="ratings-page-main" id="ratingsPageMain">
+    <div class="ratings-tabs ratings-page-tabs" id="ratingsTabs" role="tablist"></div>
+    <p class="ratings-action-status" id="ratingsActionStatus" role="status" aria-live="polite" hidden></p>
+    <div class="ratings-content ratings-page-content" id="ratingsContent"></div>
+  </main>
+
+  <noscript><p class="ratings-error">本页需要启用 JavaScript 才能加载等级分工作区。</p></noscript>
+
+  <script src="viewer-flags.js"></script>
+  <script src="viewer-theme.js"></script>
+  <script src="viewer-data-client.js"></script>
+  <script src="viewer-model.js"></script>
+  <script src="viewer-shell.js"></script>
+  <script src="viewer-ratings-chart.js"></script>
+  <script src="viewer-ratings.js"></script>
+</body>
+</html>

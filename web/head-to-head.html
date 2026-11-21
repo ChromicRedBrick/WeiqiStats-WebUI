@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="standalone-document">
+<head>
+  <script>window.GO_STATS_DATA_MODE = "public";</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>对手交锋 · 国际围棋赛事档案</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="viewer-tokens.css">
+  <link rel="stylesheet" href="viewer.css">
+  <link rel="stylesheet" href="viewer-sgf.css">
+  <link rel="stylesheet" href="viewer-dialogs.css">
+</head>
+<body class="h2h-page">
+  <script>
+    (function () {
+      var pref = 'light';
+      try {
+        var q = new URLSearchParams(location.search).get('theme');
+        if (q === 'light' || q === 'dark' || q === 'auto') pref = q;
+        else {
+          var s = localStorage.getItem('go_viewer_theme_v1');
+          if (s === 'light' || s === 'dark' || s === 'auto') pref = s;
+        }
+      } catch (_) {}
+      var resolved = pref === 'dark' || (pref === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      document.documentElement.dataset.themePref = pref;
+      document.body.dataset.themePref = pref;
+      document.body.dataset.theme = resolved;
+      document.body.style.colorScheme = resolved;
+    })();
+  </script>
+
+  <header class="h2h-nav">
+    <a href="index.html">← 赛事档案</a>
+    <span class="h2h-nav-title">对手交锋</span>
+    <a class="h2h-nav-link" id="h2hBackPlayer" href="player.html" hidden>棋手资料</a>
+    <button class="btn" id="btnCommand" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">搜索</button><button type="button" class="btn" id="h2hTheme">切换外观</button>
+  </header>
+
+  <main class="h2h-main" id="h2hMain">
+    <p class="h2h-status" id="h2hStatus" role="status" aria-live="polite">加载中…</p>
+
+    <section class="h2h-players" id="h2hPlayers" aria-label="双方棋手">
+      <article class="h2h-player" data-side="a" id="h2hPlayerA"></article>
+      <button type="button" class="btn h2h-swap" id="h2hSwap" title="交换双方" aria-label="交换双方">⇄<span>交换</span></button>
+      <article class="h2h-player" data-side="b" id="h2hPlayerB"></article>
+    </section>
+
+    <div id="h2hBody" hidden>
+      <section class="h2h-card h2h-summary" id="h2hSummary" aria-labelledby="h2hSummaryTitle"></section>
+
+      <section class="h2h-card h2h-colors" id="h2hColors" aria-labelledby="h2hColorsTitle"></section>
+
+      <section class="h2h-card h2h-filters" id="h2hFilters" aria-label="筛选条件">
+        <div class="h2h-filter-head">
+          <h2>筛选</h2>
+          <button type="button" class="btn h2h-filter-toggle" id="h2hFilterToggle" aria-expanded="false" aria-controls="h2hFilterBody">展开筛选</button>
+          <button type="button" class="btn" id="h2hReset">重置</button>
+        </div>
+        <div class="h2h-filter-body" id="h2hFilterBody">
+          <p class="h2h-filter-note" id="h2hFilterNote"></p>
+          <label>赛事类别<select id="h2hCategory"></select></label>
+          <label>赛事<select id="h2hTournament"></select></label>
+          <label>赛段<select id="h2hStage"></select></label>
+          <label>赛事范围<select id="h2hCompetition"></select></label>
+          <label>执色<select id="h2hColor"></select></label>
+          <label>起始日期<input type="text" id="h2hFrom" placeholder="YYYY[-MM[-DD]]" autocomplete="off" spellcheck="false"></label>
+          <label>截止日期<input type="text" id="h2hTo" placeholder="YYYY[-MM[-DD]]" autocomplete="off" spellcheck="false"></label>
+          <label class="h2h-check"><input type="checkbox" id="h2hUnknown" checked>含未知日期</label>
+          <label class="h2h-list-filter">结果<select id="h2hResult"></select></label>
+          <label class="h2h-check h2h-list-filter"><input type="checkbox" id="h2hSgf">仅看有棋谱</label>
+          <span class="h2h-list-hint" id="h2hListHint">结果与棋谱筛选仅作用于下方对局列表。</span>
+        </div>
+      </section>
+
+      <div class="h2h-tabs" id="h2hTabs" role="tablist" aria-label="交锋内容页签">
+        <button type="button" class="h2h-tab active" data-view="games" role="tab" aria-selected="true" id="h2hTabGames">逐局交锋</button>
+        <button type="button" class="h2h-tab" data-view="series" role="tab" aria-selected="false" id="h2hTabSeries">系列赛交锋</button>
+      </div>
+
+      <section class="h2h-card h2h-list" id="h2hList" aria-labelledby="h2hListTitle">
+        <h2 id="h2hListTitle" class="h2h-visually-hidden">交锋记录</h2>
+        <div id="h2hListBody"></div>
+        <div class="h2h-pager" id="h2hPager"></div>
+      </section>
+
+      <section class="h2h-card h2h-notes" id="h2hNotes" aria-labelledby="h2hNotesTitle"></section>
+    </div>
+  </main>
+
+  <noscript><p class="h2h-status">本页需要启用 JavaScript 才能读取交锋资料。</p></noscript>
+
+  <script src="viewer-data-client.js"></script>
+  <script src="viewer-model.js"></script>
+  <script src="viewer-flags.js"></script>
+  <script src="viewer-theme.js"></script>
+  <script src="viewer-shell.js"></script>
+  <script src="viewer-head-to-head.js"></script>
+</body>
+</html>
