@@ -2286,3 +2286,21 @@ body[data-theme="dark"] .sgf-progress-badge.badge-branch {
   .sgf-player-deck .sgf-control-group--nav .btn-autoplay { min-width: 4rem; }
   .sgf-head .sgf-head-actions .btn { flex: 0 1 auto; }
 }
+
+
+/* 跨页就地看谱弹窗（player.html / head-to-head.html） */
+.sgf-host-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sgf-host-archive-link {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.match-dialog--sgf-only .sgf-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}

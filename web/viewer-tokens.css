@@ -1,14 +1,17 @@
 /*!
- * 国际围棋赛事档案 — 设计变量与基础层（样式表 1/4）
+ * 国际围棋赛事档案 — 设计变量与基础层
  *
- * 加载方式：四个页面（index.html、player.html、head-to-head.html、ratings.html）
- * 按同一顺序引入四份样式表：
+ * 页面按以下顺序引入公共样式和所需模块：
  *   viewer-tokens.css    1 设计变量与主题、2 基础元素与必要重置
  *   viewer.css           3 公共组件、4 应用布局、5 功能组件、
  *                        7 响应式与组件状态、8 导出与打印
+ *   viewer-bracket-orient.css  对阵排布方向与抽签展板式（index.html 按需加载）
+ *   viewer-player.css          棋手独立页与等级分档案（player.html 按需加载）
+ *   viewer-h2h.css             对手交锋独立页（head-to-head.html 按需加载）
  *   viewer-sgf.css       6 棋谱（SGF）组件
  *   viewer-dialogs.css   命令面板、等级分工作台、弹窗与抽屉（覆盖层，最后加载）
- * 编号只沿用原单文件的行文顺序；级联先后以加载顺序为准，新增页面须按此顺序全量引入。
+ * 标准响应式断点：1150px（紧凑桌面）/ 900px（平板）/ 760px（窄屏转卡片）/ 600px（小屏手机）。
+ * 编号沿用原单文件的行文顺序。页面只加载使用的模块。
  *
  * 维护约定：
  * - 颜色差异只写在 :root / body 主题变量中；棋盘、棋子、研究状态使用独立语义变量。
