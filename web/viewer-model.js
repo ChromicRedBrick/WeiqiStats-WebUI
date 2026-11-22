@@ -149,6 +149,19 @@
     if (item && item.champion) return item.champion;
     return editionOngoing(item, today) ? '进行中 · 冠军待定' : '—';
   }
+  function isMainOngoing(item, allData, today = new Date().toISOString().slice(0, 10)) {
+    if (!item || item.champion || item.champion_id || !editionOngoing(item, today)) return false;
+    const start = dateKey(item.start_date);
+    if (start ? start > today : Number(item.year) > Number(today.slice(0, 4))) return false;
+    if (typeof item.has_main_stage === 'boolean') return item.has_main_stage;
+    const data = allData?.[item.id];
+    if (!data) return false;
+    const ties = data.team_competition?.ties || [];
+    return Boolean(data.league_rankings?.length) || (data.rounds || []).some(round =>
+      round.round_name?.trim() && !isPrelimRound(round) && !isUnclassifiedRound(round) &&
+      (/^本赛\s*[｜|]/.test(round.round_name.trim()) || !/初赛|复赛|资格/.test(round.round_name)) &&
+      (round.matches?.length || ties.some(tie => tie.round_id === round.id)));
+  }
   // 预选/复赛/资格赛等前置阶段在正赛前数月举行属正常口径，不按届次日期判冲突。
   const PRELIM_ROUND_NAME = /预选|予選|预赛|复赛|资格|本选/;
   function isPrelimRoundName(name) { return PRELIM_ROUND_NAME.test(String(name || '')); }
@@ -1422,7 +1435,7 @@
       ? `<div class="profile-name-note">原记录国际拼写：${escape(p.name_romanized)}</div>` : '';
     return `<div class="profile-native-name"><span>原文姓名（${escape(language)}）：</span><strong>${escape(value)}</strong>${pending && p.name_native ? ' <span class="profile-name-note">（待核）</span>' : ''}${link}${spelling}${note}</div>`;
   }
-  const api = {escape, raw, html, samePlayer, participants, formatRank, hasPlayer, dateKey, dateLabel, editionYearLabel, editionTitle, editionLabel, editionOngoing, editionChampionText, dateConflict, dateConflictInEdition, isPrelimRoundName, prelimRoundIds,
+  const api = {escape, raw, html, samePlayer, participants, formatRank, hasPlayer, dateKey, dateLabel, editionYearLabel, editionTitle, editionLabel, editionOngoing, editionChampionText, isMainOngoing, dateConflict, dateConflictInEdition, isPrelimRoundName, prelimRoundIds,
     isPrelimRound, isUnclassifiedRound, isLeagueRound, isGroupTableRound, prelimRegionOf, prelimGroups, PRELIM_REGION_ORDER, roundDisplayName,
     aggregateSeries, finalSeries, seriesOutcomes, seriesGameLabel, singleGamePresentation, isFinalRound, sourceRoundsForView, roundsForView, renderedMatches, edgesForView, unconfirmedLinks, collectPlayers, doubleEliminationLanes, doubleEliminationBlocks,
     supportsStageDrawView, compareDrawMatches, groupRoundMatchesForDrawView,

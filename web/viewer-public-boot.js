@@ -45,6 +45,7 @@
     hasLocalIndex,
     version: null,
     stats: null,
+    ongoingEditions: null,
     error: null,
     ready: Promise.resolve(),
     indexById: new Map(),
@@ -117,6 +118,7 @@
       boot.version = version;
       boot.stats = version.records || null;
       const first = await client.catalogPage(1, CATALOG_PAGE);
+      boot.ongoingEditions = first.ongoing_editions ?? null;
       mergeIndex(first.items);
       root.dispatchEvent(new CustomEvent('go-stats:catalog-page',
         {detail: {page: 1, page_meta: first.page}}));
@@ -168,6 +170,7 @@
       const [payload] = await Promise.all(tasks);
       if (payload) {
         boot.stats = payload.stats || null;
+        boot.ongoingEditions = payload.ongoing_editions ?? null;
         boot.version = {data_version: payload.data_version || 'local', source: 'local', records: boot.stats};
         if (Array.isArray(payload.players)) {
           root.PLAYERS_DATA.splice(0, root.PLAYERS_DATA.length, ...payload.players);

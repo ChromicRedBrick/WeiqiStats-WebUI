@@ -352,7 +352,32 @@
         else url.searchParams.delete('view');
         try { history[opts.push ? 'pushState' : 'replaceState'](null, '', url); } catch (_) {}
       }
+      function renderOngoingGroup() {
+        const group = document.getElementById('ongoingEditionsGroup');
+        const list = document.getElementById('ongoingEditionsList');
+        if (!group || !list) return;
+        const items = boot?.ongoingEditions ?? indexList
+          .filter(item => M.isMainOngoing(item, allData))
+          .sort((a, b) => window.GoViewerCatalog.compareEditions(a, b, 'desc'));
+        group.hidden = !items.length;
+        document.getElementById('ongoingEditionsCount').textContent = String(items.length);
+        list.replaceChildren(...items.map(item => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `ongoing-edition-chip${item.id === currentEditionId ? ' active' : ''}`;
+          btn.dataset.ongoingId = item.id;
+          if (item.id === currentEditionId) btn.setAttribute('aria-current', 'true');
+          btn.innerHTML = `<span class="ongoing-chip-dot" aria-hidden="true"></span>
+            <span class="ongoing-chip-name">${esc(item.tournament_short || item.tournament_name)} ${esc(M.editionLabel(item))}</span>`;
+          btn.onclick = async () => {
+            if (await loadEdition(item.id, {push: true, clearMatch: true})) setMobileCatalog(false);
+          };
+          return btn;
+        }));
+      }
+
       function renderEditionList() {
+        renderOngoingGroup();
         const listContainer = document.getElementById("editionList");
         listContainer.innerHTML = "";
 
@@ -439,8 +464,8 @@
         syncViewModeButtons(allData[edId]);
 
         // Update active class in sidebar
-        document.querySelectorAll(".edition-item").forEach(el => {
-          const selected = el.dataset.id === edId;
+        document.querySelectorAll('.edition-item, .ongoing-edition-chip').forEach(el => {
+          const selected = (el.dataset.ongoingId || el.dataset.id) === edId;
           el.classList.toggle("active", selected);
           if (selected) el.setAttribute('aria-current', 'true');
           else el.removeAttribute('aria-current');

@@ -116,6 +116,13 @@
         <div id="catalogActiveFilters" class="catalog-active-filters" aria-label="已选筛选条件" hidden></div>
         <div id="catalogSummary" class="catalog-summary" role="status" aria-live="polite"></div>
       </div>
+      <details class="sidebar-ongoing-group" id="ongoingEditionsGroup" open hidden>
+        <summary class="sidebar-ongoing-summary">
+          <span>本赛进行中</span>
+          <span class="sidebar-ongoing-count" id="ongoingEditionsCount"></span>
+        </summary>
+        <div class="sidebar-ongoing-list" id="ongoingEditionsList" role="group" aria-label="本赛进行中届次"></div>
+      </details>
       <div class="aside-tabs" role="tablist" aria-label="赛事状态">
         <button class="aside-tab active" data-tab="all" type="button" role="tab">全部</button>
         <button class="aside-tab" data-tab="active" type="button" role="tab">现行</button>
