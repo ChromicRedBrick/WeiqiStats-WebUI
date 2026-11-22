@@ -37,6 +37,7 @@
       play: '<circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="m10 8.8 5 3.2-5 3.2V8.8Z" fill="currentColor"/>',
       calendar: '<rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M4 10h16M8 3.5V7M16 3.5V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
       edit: '<path d="m5 19 3.5-.7L19 7.8 16.2 5 5.7 15.5 5 19Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m14.5 6.7 2.8 2.8" stroke="currentColor" stroke-width="1.6"/>',
+      eye: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.6"/>',
       arrow: '<path d="M5 12h14m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>'
     };
     return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">${paths[name] || paths.arrow}</svg>`;
@@ -279,6 +280,7 @@
         {section: 'nav', label: '对手交锋', icon: 'person', keywords: '对手 交锋', run: () => { location.href = 'head-to-head.html'; }},
         {section: 'nav', label: '等级分', icon: 'trophy', keywords: '等级分 榜单', run: () => { location.href = 'ratings.html'; }},
         ...themeCommands,
+        {section: 'view', id: 'spoiler-toggle', label: document.body.dataset.spoiler === 'hidden' ? '关闭防剧透模式（显示赛果）' : '开启防剧透模式（隐藏赛果）', meta: '可点击单局单独揭示', icon: 'eye', keywords: '防剧透 剧透 隐藏 赛果 spoiler', run: () => window.GoViewerSpoiler?.toggle?.()},
       ];
       const definitions = [
         {section: 'nav', id: 'people', label: '打开人物档案', meta: '搜索、查看与新建人物', icon: 'person', keywords: '人物 棋手 档案 people player', run: () => click('btnPeople')},
@@ -296,6 +298,7 @@
         {section: 'view', id: 'theme-light', label: '切换为浅色外观', meta: themePref() === 'light' ? '当前' : '暖灰浅色', icon: 'sun', keywords: '浅色 主题 外观 theme light', run: () => click('btnThemeLight')},
         {section: 'view', id: 'theme-dark', label: '切换为深色外观', meta: themePref() === 'dark' ? '当前' : '分层炭灰', icon: 'moon', keywords: '深色 主题 外观 theme dark', run: () => click('btnThemeDark')},
         {section: 'view', id: 'theme-auto', label: '跟随系统外观', meta: themePref() === 'auto' ? '当前' : '随系统明暗自动切换', icon: 'monitor', keywords: '跟随 系统 自动 主题 theme auto', run: () => click('btnThemeAuto')},
+        {section: 'view', id: 'spoiler-toggle', label: document.body.dataset.spoiler === 'hidden' ? '关闭防剧透模式（显示赛果）' : '开启防剧透模式（隐藏赛果）', meta: '可点击单局单独揭示', icon: 'eye', keywords: '防剧透 剧透 隐藏 赛果 spoiler', run: () => window.GoViewerSpoiler?.toggle?.()},
         {section: 'view', id: 'edit-mode', label: editMode() ? '关闭编辑模式' : '开启编辑模式', meta: editMode() ? '退出编辑' : '允许修改资料与棋谱关联', icon: 'edit', keywords: '编辑 模式 edit', run: () => click('btnEditMode')}
       ];
       return definitions.filter(item => !item.element || canUse(item.element));
@@ -578,8 +581,155 @@
     window.GoViewerCommand = {open, close: () => close(true), isOpen: () => dialog.open};
   }
 
+  // 在各子页脚本绑定主题按钮前挂载顶栏。
+  function mountStandaloneHeader() {
+    const {standalonePage: active, themeToggleId: themeId} = document.body.dataset;
+    const navItems = [
+      {key: 'tournaments', label: '赛事资料', href: 'index.html'},
+      {key: 'player', label: '人物档案', href: 'index.html#people'},
+      {key: 'ratings', label: '等级分', href: 'ratings.html'},
+      {key: 'h2h', label: '对手交锋', href: 'head-to-head.html'}
+    ];
+    const navHtml = navItems.map(item => {
+      const isCurrent = item.key === active;
+      return `<a class="nav-link${isCurrent ? ' is-active' : ''}" href="${item.href}"${isCurrent ? ' aria-current="page"' : ''}>${item.label}</a>`;
+    }).join('');
+    const themeBtnHtml = themeId
+      ? `<button type="button" class="btn btn-sm standalone-theme-btn" id="${E(themeId)}">切换外观</button>`
+      : '';
+    const header = document.createElement('header');
+    header.className = 'app-header app-header--standalone';
+    header.innerHTML = `
+      <a class="header-brand header-brand-link" href="index.html">
+        <div class="logo-badge" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M7 4v24M16 4v24M25 4v24M4 7h24M4 16h24M4 25h24" stroke="currentColor" opacity=".25"/><circle cx="16" cy="16" r="6" fill="currentColor"/><circle cx="25" cy="7" r="4" fill="var(--bg-secondary)" stroke="currentColor"/></svg></div>
+        <div class="title-group"><span class="brand-title">国际围棋赛事档案</span></div>
+      </a>
+      <nav class="global-nav" aria-label="全局导航">${navHtml}</nav>
+      <div class="header-actions">
+        <button class="command-trigger" id="btnCommand" type="button" aria-label="打开命令菜单" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" title="打开命令菜单（${shortcutLabel}）">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 7 4 12l5 5M15 7l5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="command-trigger-label">搜索</span>
+          <kbd class="command-trigger-kbd">${shortcutLabel}</kbd>
+        </button>
+        <button type="button" class="btn btn-sm spoiler-toggle-btn" id="btnSpoilerToggle" aria-pressed="false" title="开启后隐藏胜负赛果，点击单局可单独揭示">防剧透</button>
+        ${themeBtnHtml}
+      </div>`;
+    document.body.insertBefore(header, document.body.firstChild);
+  }
+
+  if (document.body?.dataset.standalonePage) {
+    mountStandaloneHeader();
+  }
+
+  /* ---------------------------------------------------------
+     全站防剧透模式：隐藏胜负结果，支持点击单局/卡片单独揭示，
+     并在存储受限场景通过 URL ?spoiler=1 在站内导航间安全透传。
+     --------------------------------------------------------- */
+  const SPOILER_KEY = 'go_viewer_spoiler_v1';
+  let spoilerMemoryHidden = (document.body && document.body.dataset && document.body.dataset.spoiler === 'hidden') || false;
+
+  function canUseStorage() {
+    try {
+      const k = '__go_spoiler_probe__';
+      localStorage.setItem(k, '1');
+      localStorage.removeItem(k);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function syncSpoilerLinks(hidden) {
+    if (canUseStorage()) return;
+    document.querySelectorAll('.app-header--standalone .global-nav a[href], .app-header--standalone .header-brand-link[href]').forEach(link => {
+      try {
+        const url = new URL(link.getAttribute('href'), location.href);
+        if (hidden) url.searchParams.set('spoiler', '1');
+        else url.searchParams.delete('spoiler');
+        link.setAttribute('href', url.pathname.split('/').pop() + url.search + url.hash);
+      } catch (_) {}
+    });
+  }
+
+  function syncSpoilerButton(hidden) {
+    const btn = document.getElementById('btnSpoilerToggle');
+    if (!btn) return;
+    btn.classList.toggle('is-active', hidden);
+    btn.setAttribute('aria-pressed', String(hidden));
+    btn.textContent = hidden ? '已防剧透' : '防剧透';
+    btn.title = hidden ? '防剧透已开启：点击关闭并显示全部赛果' : '开启后隐藏胜负赛果，点击单局可单独揭示';
+  }
+
+  function setSpoilerHidden(hidden, persist = true) {
+    const next = Boolean(hidden);
+    spoilerMemoryHidden = next;
+    if (document.body) {
+      document.body.dataset.spoiler = next ? 'hidden' : 'visible';
+      if (!next) {
+        document.querySelectorAll('.spoiler-revealed').forEach(el => el.classList.remove('spoiler-revealed'));
+      }
+    }
+    if (persist) {
+      try { localStorage.setItem(SPOILER_KEY, next ? 'hidden' : 'visible'); } catch (_) {}
+      const url = new URL(location.href);
+      if (url.searchParams.has('spoiler') || !canUseStorage()) {
+        url.searchParams.set('spoiler', next ? '1' : '0');
+        try { history.replaceState(history.state, '', url); } catch (_) {}
+      }
+    }
+    syncSpoilerButton(next);
+    syncSpoilerLinks(next);
+    try {
+      window.dispatchEvent(new CustomEvent('go:spoiler-changed', {detail: {hidden: next}}));
+    } catch (_) {}
+    return next;
+  }
+
+  window.GoViewerSpoiler = {
+    isHidden: () => spoilerMemoryHidden,
+    setHidden: setSpoilerHidden,
+    toggle: () => setSpoilerHidden(!spoilerMemoryHidden, true)
+  };
+
+  function initSpoiler() {
+    let initial = spoilerMemoryHidden;
+    try {
+      const q = new URLSearchParams(location.search).get('spoiler');
+      if (q === '1' || q === 'hidden') initial = true;
+      else if (q === '0' || q === 'visible') initial = false;
+      else if (localStorage.getItem(SPOILER_KEY) === 'hidden') initial = true;
+    } catch (_) {}
+    setSpoilerHidden(initial, false);
+
+    const btn = document.getElementById('btnSpoilerToggle');
+    if (btn) btn.addEventListener('click', () => window.GoViewerSpoiler.toggle());
+
+    window.addEventListener('storage', event => {
+      if (event.key === SPOILER_KEY) {
+        setSpoilerHidden(event.newValue === 'hidden', false);
+      }
+    });
+
+    // 点击赛果先揭示，保留对局卡片和「详情」原有的打开行为。
+    document.addEventListener('click', event => {
+      if (!spoilerMemoryHidden || !(event.target instanceof Element)) return;
+      const source = event.target;
+      const control = source.closest('a, button, input, select');
+      const score = source.closest('.wiki-score-td, .wiki-r1-score, .player-outcome, .result-badge, .draw-winner-result, #matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"])');
+      const target = score
+        ? score.closest('.wiki-match-table, .wiki-r1-row, .match-card, .draw-winner-box, tr[data-table-match], .h2h-games-table tr') || score
+        : source.closest('.player-games-result, .podium-name, .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally, .player-recent-form, .h2h-recent-form, .career-matrix td');
+      if (!target || (control && !control.matches('.result-badge'))) return;
+      if (control && target.classList.contains('spoiler-revealed')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      target.classList.toggle('spoiler-revealed');
+    }, true);
+  }
+
   function init() {
     initSidebar();
+    initSpoiler();
     initCommands();
   }
 

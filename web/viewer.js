@@ -3255,7 +3255,8 @@ window.showPlayer = function(playerNameOrId) {
             }
           };
           try {
-            if (localStorage.getItem(BANNER_COMPACT_KEY) === '1') {
+            const storedCompact = localStorage.getItem(BANNER_COMPACT_KEY);
+            if (storedCompact === '1' || (storedCompact === null && window.innerHeight <= 820)) {
               applyCompactBanner(true, false);
             }
           } catch (_) {}

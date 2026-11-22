@@ -8,35 +8,15 @@
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="viewer-tokens.css">
   <link rel="stylesheet" href="viewer.css">
-  <link rel="stylesheet" href="viewer-sgf.css">
   <link rel="stylesheet" href="viewer-dialogs.css">
 </head>
-<body class="h2h-page">
-  <script>
-    (function () {
-      var pref = 'light';
-      try {
-        var q = new URLSearchParams(location.search).get('theme');
-        if (q === 'light' || q === 'dark' || q === 'auto') pref = q;
-        else {
-          var s = localStorage.getItem('go_viewer_theme_v1');
-          if (s === 'light' || s === 'dark' || s === 'auto') pref = s;
-        }
-      } catch (_) {}
-      var resolved = pref === 'dark' || (pref === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-      document.documentElement.dataset.themePref = pref;
-      document.body.dataset.themePref = pref;
-      document.body.dataset.theme = resolved;
-      document.body.style.colorScheme = resolved;
-    })();
-  </script>
+<body class="h2h-page" data-standalone-page="h2h" data-theme-toggle-id="h2hTheme">
+  <script src="viewer-theme-boot.js"></script>
 
-  <header class="h2h-nav">
-    <a href="index.html">← 赛事档案</a>
+  <nav class="subpage-bar h2h-nav" aria-label="对手交锋上下文导航">
     <span class="h2h-nav-title">对手交锋</span>
-    <a class="h2h-nav-link" id="h2hBackPlayer" href="player.html" hidden>棋手资料</a>
-    <button class="btn" id="btnCommand" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">搜索</button><button type="button" class="btn" id="h2hTheme">切换外观</button>
-  </header>
+    <a class="h2h-nav-link" id="h2hBackPlayer" href="player.html" hidden>← 返回棋手资料</a>
+  </nav>
 
   <main class="h2h-main" id="h2hMain">
     <p class="h2h-status" id="h2hStatus" role="status" aria-live="polite">加载中…</p>
@@ -57,6 +37,12 @@
           <h2>筛选</h2>
           <button type="button" class="btn h2h-filter-toggle" id="h2hFilterToggle" aria-expanded="false" aria-controls="h2hFilterBody">展开筛选</button>
           <button type="button" class="btn" id="h2hReset">重置</button>
+        </div>
+        <div class="h2h-quick-presets" id="h2hQuickPresets" role="group" aria-label="快捷筛选预设">
+          <button type="button" class="h2h-preset-chip" data-h2h-preset="all">全部</button>
+          <button type="button" class="h2h-preset-chip" data-h2h-preset="world">世界大赛</button>
+          <button type="button" class="h2h-preset-chip" data-h2h-preset="recent3y">近三年</button>
+          <button type="button" class="h2h-preset-chip" data-h2h-preset="sgf">仅看有棋谱</button>
         </div>
         <div class="h2h-filter-body" id="h2hFilterBody">
           <p class="h2h-filter-note" id="h2hFilterNote"></p>

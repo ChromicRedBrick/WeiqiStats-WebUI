@@ -385,6 +385,18 @@
         </div>`
       : '<p class="h2h-empty-bar">本库尚未收录双方任何已完成的单局交锋。</p>';
     const onlyScheduled = summary.total_games > 0 && summary.completed_games === 0;
+    const recentItems = state.view === 'games' && payload.pagination?.page === 1
+      ? (payload.items || []).filter(item => item.winner_side === 'a' || item.winner_side === 'b' || item.outcome === 'no_result').slice(0, 10).reverse()
+      : [];
+    const recentFormHtml = recentItems.length
+      ? `<div class="h2h-recent-form" aria-label="近期交锋走势"><span class="recent-form-label">近期 ${recentItems.length} 局</span><span class="recent-form-dots">${recentItems.map(item => {
+          const tone = item.winner_side === 'a' ? 'a' : item.winner_side === 'b' ? 'b' : 'nr';
+          const short = item.winner_side === 'a' ? Array.from(a)[0] : item.winner_side === 'b' ? Array.from(b)[0] : '—';
+          const who = item.winner_side === 'a' ? `${a} 胜` : item.winner_side === 'b' ? `${b} 胜` : '无胜负';
+          const tip = `${dateText(item)} · ${editionText(item)} · ${who}`;
+          return `<span class="recent-form-dot h2h-dot--${tone}" title="${E(tip)}" aria-label="${E(tip)}">${E(short)}</span>`;
+        }).join('')}</span><span class="recent-form-tail">最新 →</span></div>`
+      : '';
     dom.summary.innerHTML = `
       <h2 id="h2hSummaryTitle">交锋概览</h2>
       ${bar}
@@ -401,6 +413,7 @@
         <li data-figure="other_results"><strong>${number(summary.other_results)}</strong><span>其他完成结果</span></li>
         <li data-figure="decided_games"><strong>${number(summary.decided_games)}</strong><span>有效胜负局</span></li>
       </ul>
+      ${recentFormHtml}
       <p class="h2h-rate" data-figure="a_win_rate">有效胜负局胜率
         <strong>${rate(summary.a_win_rate)}</strong>
         <span>（${E(a)} ${number(summary.a_wins)} 胜 ÷ 有效胜负局 ${number(summary.decided_games)} 局）</span></p>
@@ -508,6 +521,23 @@
     if (seriesView) notes.push('当前为系列赛页签：执色、赛段、单局结果筛选已停用。');
     dom.filterNote.textContent = notes.join(' ');
     dom.filterNote.hidden = !notes.length;
+    const presetBar = document.getElementById('h2hQuickPresets');
+    if (presetBar) {
+      const recent3yFrom = String(new Date().getFullYear() - 2);
+      const isAll = state.category === 'all' && !state.tournament && state.stage === 'all'
+        && state.competition === 'all' && state.color === 'all' && !state.from && !state.to
+        && state.unknown && state.result === 'all' && !state.sgf;
+      presetBar.querySelectorAll('[data-h2h-preset]').forEach(btn => {
+        const key = btn.dataset.h2hPreset;
+        const active = key === 'all' ? isAll
+          : key === 'world' ? state.category === 'world'
+          : key === 'recent3y' ? state.from === recent3yFrom && !state.to
+          : key === 'sgf' ? Boolean(state.sgf) : false;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-pressed', String(active));
+        if (key === 'sgf') btn.disabled = seriesView;
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -853,6 +883,38 @@
       clearTimeout(dateTimer);
       dateTimer = setTimeout(() => reload('to', dom.to.value.trim(), true), 260);
     });
+    const presetBar = document.getElementById('h2hQuickPresets');
+    if (presetBar) {
+      presetBar.addEventListener('click', event => {
+        const btn = event.target.closest('[data-h2h-preset]');
+        if (!btn || btn.disabled) return;
+        const key = btn.dataset.h2hPreset;
+        const recent3yFrom = String(new Date().getFullYear() - 2);
+        if (key === 'all') {
+          Object.assign(state, {
+            category: 'all', tournament: '', stage: 'all', competition: 'all', color: 'all',
+            from: '', to: '', unknown: true, result: 'all', sgf: false, page: 1,
+          });
+        } else if (key === 'world') {
+          state.tournament = '';
+          state.category = state.category === 'world' ? 'all' : 'world';
+          state.page = 1;
+        } else if (key === 'recent3y') {
+          if (state.from === recent3yFrom && !state.to) {
+            state.from = '';
+          } else {
+            state.from = recent3yFrom;
+            state.to = '';
+          }
+          state.page = 1;
+        } else if (key === 'sgf') {
+          state.sgf = !state.sgf;
+          state.page = 1;
+        }
+        writeUrl(true);
+        load();
+      });
+    }
     dom.reset.addEventListener('click', () => {
       Object.assign(state, {
         category: 'all', tournament: '', stage: 'all', competition: 'all', color: 'all',

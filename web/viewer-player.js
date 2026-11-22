@@ -103,24 +103,11 @@
       <p class="player-page-meta">${[window.GoViewerFlags.info(player.nationality).name, player.default_kiin, player.birth_date ? `生于 ${player.birth_date}` : ''].filter(Boolean).map(E).join(' · ')}</p>
       ${player.profile_note ? `<p>${E(player.profile_note)}</p>` : ''}
       <div class="player-page-stats" id="playerCareerStats" hidden></div>
+      <div class="player-recent-form" id="playerRecentForm" hidden></div>
     </section>
-    <span id="games" class="player-ratings-anchor" aria-hidden="true"></span>
-    <section class="player-career-section player-games-section" id="playerGamesSection" aria-labelledby="playerGamesTitle">
-      <div class="player-career-heading">
-        <div><h2 id="playerGamesTitle">历史对局</h2><p id="playerGamesSubtitle">按日期倒序排列，最新对局在前</p></div>
-        <p class="player-games-summary" id="playerGamesSummary" role="status">加载中…</p>
-      </div>
-      <div class="player-games-toolbar" id="playerGamesToolbar" hidden>
-        <label class="player-games-search"><span class="sr-only">搜索对局</span><input type="search" id="gamesQueryInput" placeholder="搜索对手、赛事、轮次或年份" autocomplete="off" spellcheck="false"></label>
-        <label><span>类别</span><select id="gamesCategoryFilter"><option value="all">全部类别</option><option value="world">世界大赛</option><option value="women_world">女子世界大赛</option><option value="international">其他国际比赛</option><option value="domestic">国内比赛</option></select></label>
-        <label><span>执色</span><select id="gamesColorFilter"><option value="all">全部</option><option value="black">执黑</option><option value="white">执白</option><option value="unknown">执色未知</option></select></label>
-        <label><span>赛果</span><select id="gamesResultFilter"><option value="all">全部</option><option value="win">胜</option><option value="loss">负</option><option value="no_result">无胜负</option><option value="scheduled">待赛</option><option value="pending">赛果待补</option></select></label>
-        <label class="player-games-check"><input type="checkbox" id="gamesSgfOnly"><span>仅看有棋谱</span></label>
-        <label><span>排序</span><select id="gamesSortOrder"><option value="desc">最新优先</option><option value="asc">最早优先</option></select></label>
-        <label><span>每页</span><select id="gamesPageSize"><option value="25">25 局</option><option value="50" selected>50 局</option><option value="100">100 局</option></select></label>
-        <button type="button" class="btn btn-small" id="gamesResetFilters" hidden>重置筛选</button>
-      </div>
-      <div id="playerGamesBody"></div>
+    <span id="ratings" class="player-ratings-anchor" aria-hidden="true"></span>
+    <section class="player-career-section player-ratings-section" id="playerRatingsSection" aria-labelledby="playerRatingsTitle">
+      <p class="player-ratings-loading" role="status">加载中…</p>
     </section>
     <details id="career" class="player-career-disclosure">
       <summary>生涯战绩</summary>
@@ -139,9 +126,23 @@
     </section>
       <div id="playerCareerTitles"></div>
     </details>
-    <span id="ratings" class="player-ratings-anchor" aria-hidden="true"></span>
-    <section class="player-career-section player-ratings-section" id="playerRatingsSection" aria-labelledby="playerRatingsTitle">
-      <p class="player-ratings-loading" role="status">加载中…</p>
+    <span id="games" class="player-ratings-anchor" aria-hidden="true"></span>
+    <section class="player-career-section player-games-section" id="playerGamesSection" aria-labelledby="playerGamesTitle">
+      <div class="player-career-heading">
+        <div><h2 id="playerGamesTitle">历史对局</h2><p id="playerGamesSubtitle">按日期倒序排列，最新对局在前</p></div>
+        <p class="player-games-summary" id="playerGamesSummary" role="status">加载中…</p>
+      </div>
+      <div class="player-games-toolbar" id="playerGamesToolbar" hidden>
+        <label class="player-games-search"><span class="sr-only">搜索对局</span><input type="search" id="gamesQueryInput" placeholder="搜索对手、赛事、轮次或年份" autocomplete="off" spellcheck="false"></label>
+        <label><span>类别</span><select id="gamesCategoryFilter"><option value="all">全部类别</option><option value="world">世界大赛</option><option value="women_world">女子世界大赛</option><option value="international">其他国际比赛</option><option value="domestic">国内比赛</option></select></label>
+        <label><span>执色</span><select id="gamesColorFilter"><option value="all">全部</option><option value="black">执黑</option><option value="white">执白</option><option value="unknown">执色未知</option></select></label>
+        <label><span>赛果</span><select id="gamesResultFilter"><option value="all">全部</option><option value="win">胜</option><option value="loss">负</option><option value="no_result">无胜负</option><option value="scheduled">待赛</option><option value="pending">赛果待补</option></select></label>
+        <label class="player-games-check"><input type="checkbox" id="gamesSgfOnly"><span>仅看有棋谱</span></label>
+        <label><span>排序</span><select id="gamesSortOrder"><option value="desc">最新优先</option><option value="asc">最早优先</option></select></label>
+        <label><span>每页</span><select id="gamesPageSize"><option value="25">25 局</option><option value="50" selected>50 局</option><option value="100">100 局</option></select></label>
+        <button type="button" class="btn btn-small" id="gamesResetFilters" hidden>重置筛选</button>
+      </div>
+      <div id="playerGamesBody"></div>
     </section>
     <section class="player-career-section player-h2h-section" aria-labelledby="h2hTitle">
       <div class="player-career-heading">
@@ -193,6 +194,21 @@
       if (counts[key]) summary.push(`${label} ${counts[key]}`);
     }
     summaryEl.textContent = summary.join(' · ');
+    if (!isFiltered && sort === 'desc' && gamesPage === 1) {
+      const formEl = document.getElementById('playerRecentForm');
+      if (formEl) {
+        const recent = slice.filter(r => r.outcome && (r.outcome.key === 'win' || r.outcome.key === 'loss')).slice(0, 10).reverse();
+        if (recent.length) {
+          const dots = recent.map(r => {
+            const isWin = r.outcome.key === 'win';
+            const tip = `${M.dateKey(r.date) || r.date || '日期未知'} · ${r.tournament || ''} · 对 ${r.opponent?.name_zh || '—'}（${r.outcome.label}）`;
+            return `<span class="recent-form-dot recent-form-dot--${isWin ? 'win' : 'loss'}" title="${E(tip)}" aria-label="${E(tip)}">${isWin ? '胜' : '负'}</span>`;
+          }).join('');
+          formEl.innerHTML = `<span class="recent-form-label">近 ${recent.length} 局走势</span><span class="recent-form-dots">${dots}</span><span class="recent-form-tail">最新 →</span>`;
+          formEl.hidden = false;
+        }
+      }
+    }
     if (!slice.length) {
       body.innerHTML = `<p class="player-games-empty">${isFiltered ? '没有符合筛选条件的对局。' : '暂无对局记录。'}</p>`;
       return;
@@ -236,6 +252,28 @@
     const nextBtn = document.getElementById('playerGamesNext');
     if (prevBtn) prevBtn.onclick = () => { if (gamesPage > 1) { gamesPage -= 1; renderGames(); } };
     if (nextBtn) nextBtn.onclick = () => { if (gamesPage < totalPages) { gamesPage += 1; renderGames(); } };
+  }
+
+  if (typeof IntersectionObserver === 'function') {
+    const navLinks = Array.from(document.querySelectorAll('.player-page-nav a[data-section-link]'));
+    const visibleSections = new Set();
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) visibleSections.add(entry.target);
+        else visibleSections.delete(entry.target);
+      });
+      const activeId = [...visibleSections].sort((a, b) => a.offsetTop - b.offsetTop)[0]?.id;
+      navLinks.forEach(link => {
+        const active = link.dataset.sectionLink === activeId;
+        link.classList.toggle('is-current', active);
+        if (active) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+    }, {rootMargin: `-70px 0px -${Math.round(window.innerHeight / 2)}px 0px`});
+    navLinks.forEach(link => {
+      const target = document.getElementById(link.dataset.sectionLink);
+      if (target) io.observe(target);
+    });
   }
 
   // 等级分档案：独立只读模块；失败或未关联都不影响战绩、交锋与夺冠记录。
