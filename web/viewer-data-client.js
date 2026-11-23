@@ -26,12 +26,25 @@
     editions: new Map(),
     editionBytes: 0,
     catalogPages: new Map(),
+    catalogCache: new Map(),
+    cachedTournamentEditions: new Map(),
+    cachedOptions: null,
+    optionsPromise: null,
     catalogMeta: null,
     bootstrapPromise: null,
   };
 
   function dataVersion(payload) {
     return payload && payload.data_version ? String(payload.data_version) : null;
+  }
+
+  function invalidateCatalog() {
+    state.catalogPages.clear();
+    state.catalogCache.clear();
+    state.cachedTournamentEditions.clear();
+    state.cachedOptions = null;
+    state.optionsPromise = null;
+    state.bootstrapPromise = null;
   }
 
   function noteVersion(payload) {
@@ -41,6 +54,7 @@
     if (state.version !== version) {
       const previous = state.version;
       state.version = version;
+      invalidateCatalog();
       root.dispatchEvent(new CustomEvent('go-stats:version-changed',
         {detail: {previous, version}}));
     }
@@ -374,7 +388,62 @@
       return task;
     },
     search(params) { return request('/matches', params); },
-    searchCatalog(q) { return request('/catalog', {q, page_size: 6}); },
+    searchCatalog(q, limit) { return this.catalogSearch(q, limit); },
+    async catalogFeatured(opts) {
+      const o = opts || {};
+      const params = o.custom ? {custom: '1', ids: (o.ids || []).join(',')} : {};
+      const key = 'featured:' + (params.custom ? params.ids : 'default');
+      if (!o.fresh && state.catalogCache.has(key)) return state.catalogCache.get(key);
+      const payload = await request('/catalog/featured', params, o);
+      state.catalogCache.set(key, payload);
+      return payload;
+    },
+    async catalogTournaments(params, options) {
+      const p = {};
+      for (const [k, v] of Object.entries(params || {})) {
+        if (v === undefined || v === null || v === '' || (k !== 'q' && v === 'all')) continue;
+        p[k] = v;
+      }
+      const key = 'tournaments:' + query(p);
+      if (!(options && options.fresh) && state.catalogCache.has(key)) return state.catalogCache.get(key);
+      const payload = await request('/catalog/tournaments', p, options);
+      state.catalogCache.set(key, payload);
+      return payload;
+    },
+    async tournamentEditions(tournamentId, params, options) {
+      if (!tournamentId) return {tournament: null, items: [], total: 0};
+      const p = {};
+      for (const [k, v] of Object.entries(params || {})) {
+        if (v === undefined || v === null || v === '' || v === 'all') continue;
+        p[k] = v;
+      }
+      const key = 'ted:' + tournamentId + ':' + query(p);
+      if (!(options && options.fresh) && state.catalogCache.has(key)) return state.catalogCache.get(key);
+      const payload = await request('/catalog/tournaments/' + encodeURIComponent(tournamentId) + '/editions', p, options);
+      state.catalogCache.set(key, payload);
+      if (!p.year_from && !p.year_to && !p.form && (!p.sort || p.sort === 'desc')) {
+        state.cachedTournamentEditions.set(tournamentId, payload);
+      }
+      return payload;
+    },
+    catalogSearch(q, limit, options) {
+      const term = String(q || '').trim().slice(0, 60);
+      if (!term) return Promise.resolve({items: [], editions: [], tournaments: []});
+      return request('/catalog/search', {q: term, limit: limit || 8}, options);
+    },
+    catalogOptions() {
+      if (state.cachedOptions) return Promise.resolve(state.cachedOptions);
+      if (!state.optionsPromise) {
+        state.optionsPromise = request('/catalog/options', {}).then(payload => {
+          state.cachedOptions = payload;
+          return payload;
+        }, error => {
+          state.optionsPromise = null;
+          throw error;
+        });
+      }
+      return state.optionsPromise;
+    },
     player(id, params) { return request('/players/' + encodeURIComponent(id), params); },
     playerGames(id, filters) { return request('/players/' + encodeURIComponent(id) + '/games', filters); },
     searchPlayers(term, limit) {
@@ -455,7 +524,62 @@
       return task;
     },
     search(params) { return requestPageData('/matches', params); },
-    searchCatalog(q) { return requestPageData('/catalog', {q}); },
+    searchCatalog(q, limit) { return this.catalogSearch(q, limit); },
+    async catalogFeatured(opts) {
+      const o = opts || {};
+      const params = o.custom ? {custom: '1', ids: (o.ids || []).join(',')} : {};
+      const key = 'featured:' + (params.custom ? params.ids : 'default');
+      if (!o.fresh && state.catalogCache.has(key)) return state.catalogCache.get(key);
+      const payload = await requestPageData('/catalog/featured', params, o);
+      state.catalogCache.set(key, payload);
+      return payload;
+    },
+    async catalogTournaments(params, options) {
+      const p = {};
+      for (const [k, v] of Object.entries(params || {})) {
+        if (v === undefined || v === null || v === '' || (k !== 'q' && v === 'all')) continue;
+        p[k] = v;
+      }
+      const key = 'tournaments:' + query(p);
+      if (!(options && options.fresh) && state.catalogCache.has(key)) return state.catalogCache.get(key);
+      const payload = await requestPageData('/catalog/tournaments', p, options);
+      state.catalogCache.set(key, payload);
+      return payload;
+    },
+    async tournamentEditions(tournamentId, params, options) {
+      if (!tournamentId) return {tournament: null, items: [], total: 0};
+      const p = {};
+      for (const [k, v] of Object.entries(params || {})) {
+        if (v === undefined || v === null || v === '' || v === 'all') continue;
+        p[k] = v;
+      }
+      const key = 'ted:' + tournamentId + ':' + query(p);
+      if (!(options && options.fresh) && state.catalogCache.has(key)) return state.catalogCache.get(key);
+      const payload = await requestPageData('/catalog/tournaments/' + encodeURIComponent(tournamentId) + '/editions', p, options);
+      state.catalogCache.set(key, payload);
+      if (!p.year_from && !p.year_to && !p.form && (!p.sort || p.sort === 'desc')) {
+        state.cachedTournamentEditions.set(tournamentId, payload);
+      }
+      return payload;
+    },
+    catalogSearch(q, limit, options) {
+      const term = String(q || '').trim().slice(0, 60);
+      if (!term) return Promise.resolve({items: [], editions: [], tournaments: []});
+      return requestPageData('/catalog/search', {q: term, limit: limit || 8}, options);
+    },
+    catalogOptions() {
+      if (state.cachedOptions) return Promise.resolve(state.cachedOptions);
+      if (!state.optionsPromise) {
+        state.optionsPromise = requestPageData('/catalog/options', {}).then(payload => {
+          state.cachedOptions = payload;
+          return payload;
+        }, error => {
+          state.optionsPromise = null;
+          throw error;
+        });
+      }
+      return state.optionsPromise;
+    },
     playerCareer(id, includeCatalog) { return requestPageData('/player-career', {id, catalog: includeCatalog ? '1' : undefined}); },
     player(id) { return requestPageData('/player-profile', {id}); },
     playerGames(id, filters) { return requestPageData('/player-games', {id, ...filters}); },
@@ -484,6 +608,7 @@
     rememberEdition,
     invalidateEdition,
     invalidateAllEditions,
+    invalidateCatalog,
     bootstrap: () => backend.bootstrap ? backend.bootstrap() : Promise.resolve(null),
     playerCareer: (id, includeCatalog) => backend.playerCareer ? backend.playerCareer(id, includeCatalog) : Promise.resolve(null),
     edition: id => backend.edition ? backend.edition(id) : backend.ensureEdition(id),
@@ -491,8 +616,15 @@
     catalogPage: (page, size) => backend.catalogPage(page, size),
     catalogAllPages: (size, onPage) => backend.catalogAllPages
       ? backend.catalogAllPages(size, onPage) : Promise.resolve(),
+    catalogFeatured: opts => backend.catalogFeatured(opts),
+    catalogTournaments: (params, options) => backend.catalogTournaments(params, options),
+    tournamentEditions: (tid, params, options) => backend.tournamentEditions(tid, params, options),
+    catalogSearch: (q, limit, options) => backend.catalogSearch(q, limit, options),
+    catalogOptions: () => backend.catalogOptions(),
+    getCachedTournamentEditions: tid => (state.cachedTournamentEditions.get(tid) || {}).items || null,
+    getCachedOptions: () => (state.cachedOptions || {}).tournaments || null,
     search: params => backend.search(params),
-    searchCatalog: q => backend.searchCatalog(q),
+    searchCatalog: (q, limit) => backend.searchCatalog(q, limit),
     player: (id, params) => backend.player(id, params),
     playerGames: (id, filters) => backend.playerGames(id, filters),
     searchPlayers: (term, limit) => backend.searchPlayers(term, limit),

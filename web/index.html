@@ -7,17 +7,13 @@
   <title>国际围棋赛事档案</title>
   <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" type="image/x-icon">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <!-- Load Local Data Index (editions loaded on demand over HTTP) -->
+  <!-- Load export flags; catalog & editions load on demand over HTTP -->
   <script src="data/export_flags.js"></script>
   <script>
   // 正式数据位于仓库之外，页面按需通过本地服务读取；直接双击 index.html 时给出启动指引，不留在白屏。
   window.addEventListener('DOMContentLoaded', function () {
     var publicMode = window.GO_STATS_DATA_MODE === 'public';
-    if (publicMode) return;
-    var fileProtocol = window.location.protocol === 'file:';
-    var hasIndex = window.GoStatsBoot ? window.GoStatsBoot.hasLocalIndex
-      : Array.isArray(window.TOURNAMENTS_INDEX) && window.TOURNAMENTS_INDEX.length > 0;
-    if (!fileProtocol && hasIndex) return;
+    if (publicMode || window.location.protocol !== 'file:') return;
     var banner = document.createElement('div');
     banner.style.cssText = 'margin:24px auto;padding:20px 24px;border:1px solid #b45309;border-radius:10px;background:#fffbeb;color:#78350f;font:14px/1.8 "Microsoft YaHei",sans-serif;max-width:760px';
     banner.innerHTML = '<strong>页面资料未能加载。</strong><br>'
@@ -78,44 +74,40 @@
   <!-- Main Workspace -->
   <div class="app-container">
 
-    <!-- Left Sidebar: Tournament & Edition Selection -->
+    <!-- Left Sidebar: On-demand Tournament & Edition Directory -->
     <div class="catalog-backdrop" id="catalogBackdrop" hidden></div>
     <aside class="app-sidebar" id="editionCatalog" aria-label="赛事目录">
       <div class="sidebar-heading">赛事目录<span id="sidebarCount"></span><button class="btn catalog-close" id="closeEditionCatalog" type="button">关闭</button></div>
-      <div class="sidebar-filter" id="catalogFilters">
+      <div class="catalog-bar" id="catalogControls">
+        <input id="catalogSearchInput" class="catalog-search-input" type="search" aria-label="搜索赛事、年份或届次" placeholder="搜赛事、年份或届次，如 三星杯 2024" autocomplete="off">
+        <button id="catalogFilterToggle" class="catalog-filter-btn" type="button" aria-expanded="false" aria-controls="catalogFilterPanel"><span>筛选</span><span id="catalogFilterBadge" class="catalog-filter-badge" hidden>0</span></button>
+      </div>
+      <div id="catalogFilterPanel" class="catalog-filter-panel" hidden>
         <span class="catalog-field-label" id="categoryFilterLabel">赛事大类</span>
         <div id="categoryFilter" class="category-shortcuts" role="group" aria-labelledby="categoryFilterLabel"></div>
         <div id="domesticCountrySection" hidden>
           <span class="catalog-field-label" id="domesticCountryLabel">国内棋战地区</span>
           <div id="domesticCountryFilter" class="category-shortcuts" role="group" aria-labelledby="domesticCountryLabel"></div>
         </div>
-        <span class="catalog-field-label" id="tournamentPickerLabel">选择赛事</span>
-        <div class="tournament-picker" id="tournamentPicker">
-          <button id="tournamentFilter" class="tournament-picker-trigger" type="button" aria-labelledby="tournamentPickerLabel tournamentFilterLabel" aria-haspopup="dialog" aria-expanded="false" aria-controls="tournamentPickerPanel">
-            <span id="tournamentFilterLabel">全部赛事</span>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <div id="tournamentPickerPanel" class="tournament-picker-panel" role="dialog" aria-label="选择赛事" hidden>
-            <input id="tournamentPickerSearch" type="search" aria-label="搜索赛事名称" placeholder="搜索赛事名称或简称" autocomplete="off" aria-controls="tournamentPickerResults">
-            <div id="tournamentPickerResults" class="tournament-picker-results"></div>
-            <div id="tournamentPickerStatus" class="tournament-picker-status" role="status" aria-live="polite"></div>
+        <span class="catalog-field-label" id="statusFilterLabel">赛事状态</span>
+        <div id="catalogStatusFilter" class="catalog-status-group" role="group" aria-labelledby="statusFilterLabel"></div>
+        <label class="catalog-field-label" for="competitionTypeFilter">比赛形式</label>
+        <select id="competitionTypeFilter"><option value="all">全部形式</option><option value="individual">个人赛</option><option value="team">团体赛</option><option value="grouped">分组赛</option></select>
+        <span class="catalog-field-label" id="catalogYearRangeLabel">年份范围</span>
+        <div class="catalog-year-range" role="group" aria-labelledby="catalogYearRangeLabel">
+          <input id="catalogYearFrom" type="number" min="1900" max="2100" inputmode="numeric" aria-label="起始年份" placeholder="起始年">
+          <span aria-hidden="true">～</span>
+          <input id="catalogYearTo" type="number" min="1900" max="2100" inputmode="numeric" aria-label="结束年份" placeholder="结束年">
+        </div>
+        <div class="catalog-filter-footer">
+          <span id="catalogSummary" class="catalog-summary" role="status" aria-live="polite"></span>
+          <div class="catalog-filter-actions">
+            <button id="catalogFilterReset" class="btn btn-small" type="button">重置</button>
+            <button id="catalogFilterClose" class="btn btn-small" type="button">收起</button>
           </div>
         </div>
-        <input id="catalogQueryInput" class="catalog-query-input" type="search" aria-label="按年份、赛事或棋手筛选届次" placeholder="按年份、赛事或棋手筛选届次" autocomplete="off">
-        <details class="catalog-more">
-          <summary>更多条件（形式与年份）</summary>
-          <label class="catalog-field-label" for="competitionTypeFilter">比赛形式</label>
-          <select id="competitionTypeFilter"><option value="all">全部形式</option><option value="individual">个人赛</option><option value="team">团体赛</option></select>
-          <span class="catalog-field-label" id="catalogYearRangeLabel">年份范围</span>
-          <div class="catalog-year-range" role="group" aria-labelledby="catalogYearRangeLabel">
-            <input id="catalogYearFrom" type="number" min="1900" max="2100" inputmode="numeric" aria-label="起始年份" placeholder="起始年">
-            <span aria-hidden="true">～</span>
-            <input id="catalogYearTo" type="number" min="1900" max="2100" inputmode="numeric" aria-label="结束年份" placeholder="结束年">
-          </div>
-        </details>
-        <div id="catalogActiveFilters" class="catalog-active-filters" aria-label="已选筛选条件" hidden></div>
-        <div id="catalogSummary" class="catalog-summary" role="status" aria-live="polite"></div>
       </div>
+      <div id="catalogActiveFilters" class="catalog-active-filters" aria-label="已选筛选条件" hidden></div>
       <details class="sidebar-ongoing-group" id="ongoingEditionsGroup" open hidden>
         <summary class="sidebar-ongoing-summary">
           <span>本赛进行中</span>
@@ -123,12 +115,7 @@
         </summary>
         <div class="sidebar-ongoing-list" id="ongoingEditionsList" role="group" aria-label="本赛进行中届次"></div>
       </details>
-      <div class="aside-tabs" role="tablist" aria-label="赛事状态">
-        <button class="aside-tab active" data-tab="all" type="button" role="tab">全部</button>
-        <button class="aside-tab" data-tab="active" type="button" role="tab">现行</button>
-        <button class="aside-tab" data-tab="closed" type="button" role="tab">停办</button>
-        <button class="aside-sort-btn" id="catalogSortToggle" type="button" aria-pressed="false" title="切换届次排序：当前最新优先（倒序）" aria-label="切换届次排序：当前最新优先（倒序）">最新 ↓</button>
-      </div>
+      <div id="catalogSubheader" class="catalog-subheader" hidden></div>
       <div class="aside-list" id="editionList"></div>
       <div class="sidebar-footer">国际围棋赛事档案</div>
       <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" aria-label="调整赛事目录宽度" aria-controls="editionList" aria-valuemin="13" aria-valuemax="26" aria-valuenow="17.25" tabindex="0" title="拖动调整宽度；双击恢复默认"></div>

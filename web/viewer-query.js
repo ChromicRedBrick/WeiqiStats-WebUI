@@ -3,7 +3,42 @@
   const M = window.GoViewerModel, E = M.escape;
   const indexList = window.TOURNAMENTS_INDEX || [];
   const allData = window.ALL_TOURNAMENTS_DATA || {};
-  const byId = new Map(indexList.map(item => [item.id, item]));
+  const byId = new Map();
+  let catalogOptionsLoading = null;
+  const editionLoadingFor = new Set();
+
+  function editionMetaFromData(id, data) {
+    if (!data) return null;
+    if (window.GoStatsBoot?.indexItemFromEdition) return window.GoStatsBoot.indexItemFromEdition(data);
+    return {
+      id: data.id || id,
+      tournament_id: data.tournament_id || '',
+      tournament_short: data.tournament_short || data.short_name || data.tournament_name || '',
+      tournament_name: data.tournament_name || data.tournament_short || '',
+      edition_number: data.edition_number ?? null,
+      year: data.year ?? null,
+      seq: data.seq ?? 0,
+      category: data.category || '',
+      domestic_country: data.domestic_country || null,
+      status: data.status || '',
+      champion: data.champion || '',
+      runner_up: data.runner_up || '',
+    };
+  }
+
+  function syncById() {
+    byId.clear();
+    for (const item of (window.TOURNAMENTS_INDEX || indexList)) {
+      if (item && item.id) byId.set(item.id, item);
+    }
+    for (const [id, data] of Object.entries(allData)) {
+      if (!byId.has(id) && data) {
+        const meta = editionMetaFromData(id, data);
+        if (meta && meta.id) byId.set(meta.id, meta);
+      }
+    }
+  }
+  syncById();
   const PAGE_SIZE = 100;
   let rows = [], page = 0, active = false, editionSynced = false, dirty = true, lastSourceKey = '';
   const dataClient = window.GoStatsDataClient || null;
@@ -276,21 +311,98 @@
       group('阶段', [...phases], 'phase:') + group('轮次码', [...codes], 'round:');
     select.value = [...select.options].some(option => option.value === previous) ? previous : '';
   }
-  function populateTournaments() {
+  function ensureCatalogOptions() {
+    const dataClient = window.GoStatsDataClient;
+    if (!dataClient || typeof dataClient.catalogOptions !== 'function') return Promise.resolve([]);
+    const cached = dataClient.getCachedOptions?.();
+    if (cached) return Promise.resolve(cached);
+    if (catalogOptionsLoading) return catalogOptionsLoading;
+    catalogOptionsLoading = dataClient.catalogOptions().then(res => {
+      catalogOptionsLoading = null;
+      const items = res?.tournaments || [];
+      if (items.length && $('tableTournament')) populateTournaments();
+      return items;
+    }).catch(() => {
+      catalogOptionsLoading = null;
+      return [];
+    });
+    return catalogOptionsLoading;
+  }
+
+  function ensureTournamentOption(tid, label) {
     const select = $('tableTournament');
+    if (!select || !tid) return;
+    if (![...select.options].some(opt => opt.value === tid)) {
+      const opt = document.createElement('option');
+      opt.value = tid;
+      opt.textContent = label || tid;
+      select.appendChild(opt);
+    }
+  }
+
+  function populateTournaments() {
+    syncById();
+    const select = $('tableTournament');
+    if (!select) return;
+    const previous = select.value;
     const seen = new Map();
-    for (const item of indexList) if (!seen.has(item.tournament_id)) seen.set(item.tournament_id, item.tournament_short);
+    const options = window.GoStatsDataClient?.getCachedOptions?.();
+    if (Array.isArray(options) && options.length) {
+      for (const item of options) {
+        if (item && item.id && !seen.has(item.id)) seen.set(item.id, item.short_name || item.name_zh || item.id);
+      }
+    }
+    for (const item of byId.values()) {
+      if (item && item.tournament_id && !seen.has(item.tournament_id)) {
+        seen.set(item.tournament_id, item.tournament_short || item.tournament_name || item.tournament_id);
+      }
+    }
     select.innerHTML = '<option value="">全部赛事</option>' +
       [...seen].map(([id, name]) => `<option value="${E(id)}">${E(name)}</option>`).join('');
+    if (previous && seen.has(previous)) select.value = previous;
+    ensureCatalogOptions();
   }
+
   function populateEditions() {
+    syncById();
     const tournament = $('tableTournament').value;
     const select = $('tableEdition');
     const previous = select.value;
-    const list = indexList.filter(item => !tournament || item.tournament_id === tournament);
-    select.innerHTML = '<option value="">全部届次</option>' + list.map(item =>
+    const list = [];
+    const seenIds = new Set();
+    const addItem = item => {
+      if (!item || !item.id || seenIds.has(item.id)) return;
+      seenIds.add(item.id);
+      list.push(item);
+    };
+    const dataClient = window.GoStatsDataClient;
+    if (tournament) {
+      const cached = dataClient?.getCachedTournamentEditions?.(tournament);
+      if (Array.isArray(cached)) cached.forEach(addItem);
+      for (const item of byId.values()) {
+        if (item.tournament_id === tournament) addItem(item);
+      }
+      if (!cached && dataClient && typeof dataClient.tournamentEditions === 'function' && !editionLoadingFor.has(tournament)) {
+        editionLoadingFor.add(tournament);
+        dataClient.tournamentEditions(tournament).then(res => {
+          editionLoadingFor.delete(tournament);
+          if (Array.isArray(res?.items) && res.items.length) {
+            window.GoStatsBoot?.mergeIndex?.(res.items);
+            syncById();
+          }
+          if ($('tableTournament')?.value === tournament) populateEditions();
+        }).catch(() => {
+          editionLoadingFor.delete(tournament);
+        });
+      }
+    } else {
+      for (const item of (window.TOURNAMENTS_INDEX || indexList)) addItem(item);
+      if (previous && !seenIds.has(previous) && byId.has(previous)) addItem(byId.get(previous));
+    }
+    const sorted = window.GoViewerCatalog?.sortEditions ? window.GoViewerCatalog.sortEditions(list, 'desc') : list;
+    select.innerHTML = '<option value="">全部届次</option>' + sorted.map(item =>
       `<option value="${E(item.id)}">${E(item.tournament_short)} ${E(M.editionLabel(item))}${item.edition_number != null ? `（${item.year}）` : ''}</option>`).join('');
-    select.value = list.some(item => item.id === previous) ? previous : '';
+    select.value = sorted.some(item => item.id === previous) ? previous : '';
     populateRounds();
     populateRoundDims();
   }
@@ -387,9 +499,13 @@
       $('tableDateUnknown').checked = filters.unknown !== '0';
       editionSynced = true;
     } else if (!editionSynced) {
+      syncById();
+      ensureCatalogOptions();
       const urlEdition = new URLSearchParams(location.search).get('ed') || window.GoViewerNavigate?.currentEdition?.();
-      if (urlEdition && allData[urlEdition]) {
-        $('tableTournament').value = byId.get(urlEdition)?.tournament_id || '';
+      const targetMeta = urlEdition && (byId.get(urlEdition) || editionMetaFromData(urlEdition, allData[urlEdition]));
+      if (urlEdition && (allData[urlEdition] || targetMeta)) {
+        if (targetMeta?.tournament_id) ensureTournamentOption(targetMeta.tournament_id, targetMeta.tournament_short || targetMeta.tournament_name);
+        $('tableTournament').value = targetMeta?.tournament_id || '';
         populateEditions();
         $('tableEdition').value = urlEdition;
         populateRounds();
@@ -448,7 +564,10 @@
     }
     show({silentRoute: Boolean(opts.silentRoute)});
     if (editionId) {
-      $('tableTournament').value = byId.get(editionId)?.tournament_id || '';
+      syncById();
+      const targetMeta = byId.get(editionId) || editionMetaFromData(editionId, allData[editionId]);
+      if (targetMeta?.tournament_id) ensureTournamentOption(targetMeta.tournament_id, targetMeta.tournament_short || targetMeta.tournament_name);
+      $('tableTournament').value = targetMeta?.tournament_id || '';
       populateEditions();
       $('tableEdition').value = editionId;
       populateRounds();
@@ -484,8 +603,9 @@
     page = 0; render();
   }
   function refresh() {
-    byId.clear();
-    for (const item of (window.TOURNAMENTS_INDEX || [])) byId.set(item.id, item);
+    syncById();
+    populateTournaments();
+    populateEditions();
     dirty = true;
     lastSourceKey = '';
     if (active) render();
@@ -597,9 +717,11 @@
     window.addEventListener('go:edition-changed', event => {
       if (!active || window.__goViewerRefreshing || event.detail?.keepTable) return;
       const editionId = event.detail?.id;
-      const meta = byId.get(editionId);
+      syncById();
+      const meta = byId.get(editionId) || editionMetaFromData(editionId, allData[editionId]);
       if (!meta) return;
-      $('tableTournament').value = meta.tournament_id;
+      if (meta.tournament_id) ensureTournamentOption(meta.tournament_id, meta.tournament_short || meta.tournament_name);
+      $('tableTournament').value = meta.tournament_id || '';
       populateEditions();
       $('tableEdition').value = editionId;
       populateRounds();

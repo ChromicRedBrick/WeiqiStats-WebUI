@@ -610,6 +610,7 @@ body:not(.export-capture) .draw-final-player.highlight-player {
 
   .app-sidebar .aside-list {
     flex: 1 1 auto;
+    max-height: none;
     min-height: 9rem;
     flex-direction: column;
     overflow-y: auto;

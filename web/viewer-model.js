@@ -737,20 +737,111 @@
     if (word === '统合') return '综合预选';
     return '其他地区';
   }
+  // 预选赛段可以再按组别分节：轮名末段是「组别＋轮次」时（如
+  // 「预选/复赛｜综合预选｜公开组第1组第1轮」「预选/复赛｜世界组第5轮」），
+  // 取出组别名作为分节标题；「中国预选第1轮」这类地区写法不含组别，仍按地区分节。
+  const PRELIM_GROUP_TAIL = /(?:第[\d一二三四五六七八九十百]+轮|决赛|決勝|半决赛|準決勝|[\d一二三四五六七八九十百]+强赛?|第[\d一二三四五六七八九十/]+局)$/;
+  const PRELIM_GROUP_WORDS = ['预选赛', '预选', '预赛', '予選', '初赛', '复赛'];
+  function prelimGroupOf(round) {
+    const name = String(round.round_name || '').trim();
+    if (!/[｜|]/.test(name)) return null;
+    const last = name.split(/[｜|]/).pop().trim();
+    let label = last.replace(PRELIM_GROUP_TAIL, '').replace(/(?:预选|予選|本战)$/, '').trim();
+    if (!label || label === last) return null;
+    // 赛事名常与组别连写（「农心辛拉面杯…预选D组」「预选赛40以上组」），
+    // 取最后一个预选类词之后的组别名；不保留「赛」这类残留字。
+    let cut = -1;
+    for (const word of PRELIM_GROUP_WORDS) cut = Math.max(cut, label.lastIndexOf(word));
+    if (cut >= 0) label = label.slice(cut);
+    label = label.replace(/^(?:预选赛|预选|预赛|予選|初赛|复赛)赛?/, '').replace(/组组$/, '组').trim();
+    if (!label.endsWith('组') || label.length > 10) return null;
+    return label;
+  }
+  function prelimRoundTailLabel(round, groupLabel) {
+    let label = String(round?.round_name || '').replace('（统合）', '').trim();
+    if (groupLabel) {
+      const idx = label.indexOf(groupLabel);
+      if (idx >= 0) {
+        const tail = label.slice(idx + groupLabel.length).replace(/^[｜|]\s*/, '').trim();
+        if (tail) return tail;
+      }
+    }
+    label = label.replace(PRELIM_STAGE_PREFIX, '').replace(/^(?:综合预选|统合预选)\s*[｜|]\s*/, '').trim();
+    return label || roundDisplayName(round);
+  }
+  function prelimGroupTree(group) {
+    const rawRounds = group?.rounds || [];
+    if (rawRounds.length < 2) return null;
+    if (rawRounds.some(round => !(round?.matches || []).length)) return null;
+    const lastRound = rawRounds[rawRounds.length - 1];
+    if ((lastRound.matches || []).length !== 1) return null;
+
+    const stageMaps = rawRounds.map(round => new Map((round.matches || []).map(match => [match.id, match])));
+    const feederCounts = new Map();
+    const edges = [];
+
+    for (let i = 0; i < rawRounds.length - 1; i++) {
+      const nextMap = stageMaps[i + 1];
+      for (const match of (rawRounds[i].matches || [])) {
+        if (!match?.id || !match.next_match_id) return null;
+        const target = nextMap.get(match.next_match_id);
+        if (!target) return null;
+        const winId = match.winner?.id || match.winner_id || '';
+        const winnerObj = match.winner?.id ? match.winner : (winId ? {id: winId, name_zh: match.winner?.name_zh || ''} : null);
+        if (winId && !hasPlayer(target, winnerObj)) return null;
+        const feeders = (feederCounts.get(target.id) || 0) + 1;
+        if (feeders > 2) return null;
+        feederCounts.set(target.id, feeders);
+        edges.push({
+          sourceId: match.id,
+          targetId: target.id,
+          player: winnerObj?.name_zh || '',
+          kind: winId ? 'winner' : 'scheduled',
+        });
+      }
+    }
+
+    const rounds = rawRounds.map(round => ({
+      ...round,
+      source_round_name: round.source_round_name || round.round_name,
+      round_name: prelimRoundTailLabel(round, group.label),
+    }));
+    const finalMatch = lastRound.matches[0];
+    return {
+      rounds,
+      edges,
+      qualifier: finalMatch?.winner?.id ? finalMatch.winner : null,
+      allExplicit: true,
+    };
+  }
+  function prelimTreeGroups(data) {
+    const groups = prelimGroups(data).map(group => ({
+      ...group,
+      key: `${group.region}::${group.label || ''}`,
+      tree: prelimGroupTree(group),
+    }));
+    return {groups, hasTrees: groups.some(group => Boolean(group.tree))};
+  }
   function prelimGroups(data) {
-    const groups = new Map();
+    const sections = new Map();
     for (const round of (data.rounds || [])) {
       if (!isPrelimRound(round)) continue;
       const display = prelimDisplayRound(round);
       const region = prelimRegionOf(display);
-      if (!groups.has(region)) groups.set(region, []);
-      groups.get(region).push(display);
+      const label = prelimGroupOf(display);
+      const key = `${region}::${label || ''}`;
+      if (!sections.has(key)) {
+        sections.set(key, {region, label, rounds: [], first: round.round_order ?? 0});
+      }
+      sections.get(key).rounds.push(display);
     }
-    return PRELIM_REGION_ORDER.filter(region => groups.has(region)).map(region => {
-      const rounds = groups.get(region);
-      return {region, rounds,
-              games: rounds.reduce((n, r) => n + (r.matches?.length || 0), 0)};
-    });
+    return [...sections.values()]
+      .sort((a, b) => PRELIM_REGION_ORDER.indexOf(a.region) - PRELIM_REGION_ORDER.indexOf(b.region)
+        || a.first - b.first)
+      .map(section => ({
+        region: section.region, label: section.label, rounds: section.rounds,
+        games: section.rounds.reduce((n, r) => n + (r.matches?.length || 0), 0),
+      }));
   }
   // 只凭对局原轮次判定为预选的赛段，按来源的原始轮次名显示：否则“决赛”
   // 这类本赛名称会出现在预选分组里。
@@ -1436,7 +1527,7 @@
     return `<div class="profile-native-name"><span>原文姓名（${escape(language)}）：</span><strong>${escape(value)}</strong>${pending && p.name_native ? ' <span class="profile-name-note">（待核）</span>' : ''}${link}${spelling}${note}</div>`;
   }
   const api = {escape, raw, html, samePlayer, participants, formatRank, hasPlayer, dateKey, dateLabel, editionYearLabel, editionTitle, editionLabel, editionOngoing, editionChampionText, isMainOngoing, dateConflict, dateConflictInEdition, isPrelimRoundName, prelimRoundIds,
-    isPrelimRound, isUnclassifiedRound, isLeagueRound, isGroupTableRound, prelimRegionOf, prelimGroups, PRELIM_REGION_ORDER, roundDisplayName,
+    isPrelimRound, isUnclassifiedRound, isLeagueRound, isGroupTableRound, prelimRegionOf, prelimGroups, prelimGroupOf, prelimGroupTree, prelimTreeGroups, PRELIM_REGION_ORDER, roundDisplayName,
     aggregateSeries, finalSeries, seriesOutcomes, seriesGameLabel, singleGamePresentation, isFinalRound, sourceRoundsForView, roundsForView, renderedMatches, edgesForView, unconfirmedLinks, collectPlayers, doubleEliminationLanes, doubleEliminationBlocks,
     supportsStageDrawView, compareDrawMatches, groupRoundMatchesForDrawView,
     matchesPlayerQuery, findPlayer, comparePlayerGames, filterPlayerGames, playerGameRows, nativeNameHtml, isWorld, isTeamCompetition, isSingleGameFinal, editionFormatChip, categoryLabel, matchResult, winnerLabel, isNoResult, hasResult, bracketEdgesForView, editionPlayers, isGroupedPlayerLabel,

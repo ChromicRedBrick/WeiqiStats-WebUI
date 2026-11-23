@@ -62,7 +62,7 @@ const find = window.GoViewerSgfFind;
   // 命令菜单“进入研究”先打开对局，再等棋谱按需载入完成后进入试下研究。
   let pendingStudy = false;
   // 按落点查找：只列出当前路径上发生在该交叉点的着手，不改变局面、不自动落子。
-
+  
   function token() { return editor()?.metadata()?.token || ''; }
   function canEdit() { return !!editor()?.enabled(); }
   async function api(path, body) {

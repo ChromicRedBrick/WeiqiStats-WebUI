@@ -3,17 +3,15 @@
  * 约定：
  * - 全局数据对象在页面其余脚本加载前即保持稳定引用；
  * - `window.ALL_TOURNAMENTS_DATA` 只是“已载入届次缓存”，不承载整库快照；
- * - 本地 HTTP 请求 /api/page-data/bootstrap 获取棋手名录与全库统计；
- * - 公开站按页读取公开接口。
+ * - `window.TOURNAMENTS_INDEX` 仅保存已接触届次的元数据缓存（不再是全库 5 MB 索引）；
+ * - 本地 HTTP 请求 /api/page-data/bootstrap 获取棋手名录、全库统计、默认届次与冠军榜；
+ * - 公开站仅按需请求常用赛事、榜单、版本与当前届次，不拉取全量目录。
  */
 (function (root) {
   'use strict';
   const client = root.GoStatsDataClient;
   const mode = (client && client.mode) || 'local-lazy';
   const isPublic = mode === 'public';
-  const CATALOG_PAGE = 100;
-  const FIXTURE_PRELOAD_LIMIT = 15;
-  const hasLocalIndex = Array.isArray(root.TOURNAMENTS_INDEX);
 
   root.ALL_TOURNAMENTS_DATA = root.ALL_TOURNAMENTS_DATA || {};
   root.TOURNAMENTS_INDEX = root.TOURNAMENTS_INDEX || [];
@@ -42,16 +40,33 @@
     mode,
     isPublic,
     isLazy: true,
-    hasLocalIndex,
+    hasLocalIndex: false,
     version: null,
     stats: null,
-    ongoingEditions: null,
+    defaultEdition: null,
+    featured: null,
     error: null,
     ready: Promise.resolve(),
     indexById: new Map(),
     indexItemFromEdition,
     mergeIndex,
+    readFeaturedPreference,
   };
+
+  function readFeaturedPreference() {
+    try {
+      const raw = root.localStorage && root.localStorage.getItem('go_featured_tournaments_v1');
+      if (!raw) return {custom: false, ids: []};
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.custom && Array.isArray(parsed.ids)) {
+        return {
+          custom: true,
+          ids: parsed.ids.filter(id => typeof id === 'string' && id),
+        };
+      }
+    } catch (_) {}
+    return {custom: false, ids: []};
+  }
 
   function indexItemFromEdition(data) {
     const edition = data.edition || {};
@@ -83,9 +98,10 @@
       time_limit: edition.time_limit,
       notes: edition.notes,
       category: tournament.category,
+      status: tournament.status,
       domestic_country: null,
       competition_type: (data.podium_groups || []).length ? 'grouped'
-        : (tournament.competition_type || 'individual'),
+        : (data.team_competition || tournament.competition_type === 'team' ? 'team' : 'individual'),
       match_count: (data.counts || {}).match_count,
       sgf_count: (data.counts || {}).sgf_count,
       __synthetic: true,
@@ -112,16 +128,33 @@
     return added;
   }
 
+  function requestedEditionFromUrl() {
+    try {
+      return new URLSearchParams((root.location && root.location.search) || '').get('ed') || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   async function startPublic() {
     try {
-      const version = await client.version();
+      const requestedEd = requestedEditionFromUrl();
+      const [version, featured, requestedData] = await Promise.all([
+        client.version(),
+        client.catalogFeatured(readFeaturedPreference()),
+        requestedEd ? client.ensureEdition(requestedEd).catch(() => null) : Promise.resolve(null),
+      ]);
       boot.version = version;
       boot.stats = version.records || null;
-      const first = await client.catalogPage(1, CATALOG_PAGE);
-      boot.ongoingEditions = first.ongoing_editions ?? null;
-      mergeIndex(first.items);
-      root.dispatchEvent(new CustomEvent('go-stats:catalog-page',
-        {detail: {page: 1, page_meta: first.page}}));
+      boot.featured = featured || null;
+      boot.defaultEdition = (featured && featured.default_edition) || null;
+      if (boot.defaultEdition) mergeIndex([boot.defaultEdition]);
+      if (requestedData) mergeIndex([indexItemFromEdition(requestedData)]);
+      const activeTid = (requestedData && requestedData.tournament && requestedData.tournament.id)
+        || (boot.defaultEdition && boot.defaultEdition.tournament_id);
+      if (activeTid) {
+        client.tournamentEditions(activeTid).catch(() => null);
+      }
       client.leaderboards().then(payload => {
         const ranking = root.CHAMPIONS_RANKING;
         ranking.splice(0, ranking.length,
@@ -131,15 +164,6 @@
           })));
         root.dispatchEvent(new CustomEvent('go-stats:leaderboards'));
       }).catch(() => {});
-      client.catalogAllPages(CATALOG_PAGE, (items, meta) => {
-        if (mergeIndex(items)) {
-          root.dispatchEvent(new CustomEvent('go-stats:catalog-page',
-            {detail: {page: meta.index, page_meta: meta}}));
-        }
-      }).catch(error => {
-        root.dispatchEvent(new CustomEvent('go-stats:catalog-error',
-          {detail: {error}}));
-      });
     } catch (error) {
       boot.error = error;
       root.dispatchEvent(new CustomEvent('go-stats:boot-error', {detail: {error}}));
@@ -148,30 +172,29 @@
   }
 
   async function startLocalLazy() {
-    if (!hasLocalIndex) return;
+    if (root.location && root.location.protocol === 'file:') return;
     try {
-      const urlParams = (() => {
-        try { return new URLSearchParams((root.location && root.location.search) || ''); }
-        catch (_) { return new URLSearchParams(); }
-      })();
-      const requestedEd = urlParams.get('ed');
+      const requestedEd = requestedEditionFromUrl();
       const isPlayerPage = /\/player\.html$/i.test((root.location && root.location.pathname) || '');
-      const tasks = [client.bootstrap()];
-      // 在 index 页面如果 URL 指定了届次，或小型测试夹具不超过 15 届，并行预热对应届次。
-      if (!isPlayerPage) {
-        if (root.TOURNAMENTS_INDEX.length > 0 && root.TOURNAMENTS_INDEX.length <= FIXTURE_PRELOAD_LIMIT) {
-          for (const item of root.TOURNAMENTS_INDEX) {
-            if (item && item.id) tasks.push(client.ensureEdition(item.id).catch(() => null));
-          }
-        } else if (requestedEd) {
-          tasks.push(client.ensureEdition(requestedEd).catch(() => null));
-        }
+      const tasks = [
+        client.bootstrap(),
+        client.catalogFeatured(readFeaturedPreference()).catch(() => null),
+      ];
+      if (!isPlayerPage && requestedEd) {
+        tasks.push(client.ensureEdition(requestedEd).catch(() => null));
       }
-      const [payload] = await Promise.all(tasks);
+      const [payload, featured, requestedData] = await Promise.all(tasks);
       if (payload) {
+        boot.hasLocalIndex = true;
         boot.stats = payload.stats || null;
-        boot.ongoingEditions = payload.ongoing_editions ?? null;
         boot.version = {data_version: payload.data_version || 'local', source: 'local', records: boot.stats};
+        boot.defaultEdition = payload.defaultEdition || (featured && featured.default_edition) || null;
+        boot.featured = featured || null;
+        if (boot.defaultEdition) mergeIndex([boot.defaultEdition]);
+        if (requestedData) mergeIndex([indexItemFromEdition(requestedData)]);
+        if (Array.isArray(payload.championsRanking)) {
+          root.CHAMPIONS_RANKING.splice(0, root.CHAMPIONS_RANKING.length, ...payload.championsRanking);
+        }
         if (Array.isArray(payload.players)) {
           root.PLAYERS_DATA.splice(0, root.PLAYERS_DATA.length, ...payload.players);
         }
@@ -179,6 +202,19 @@
           Object.assign(root.PLAYER_ID_ALIASES, payload.playerAliases.ids || {});
           Object.assign(root.PLAYER_NAME_ALIASES, payload.playerAliases.names || {});
         }
+      }
+      if (!isPlayerPage) {
+        const targetEd = requestedEd || (boot.defaultEdition && boot.defaultEdition.id) || '';
+        const targetTid = (requestedData && requestedData.tournament && requestedData.tournament.id)
+          || (boot.defaultEdition && boot.defaultEdition.tournament_id) || '';
+        const followups = [];
+        if (!requestedEd && targetEd) {
+          followups.push(client.ensureEdition(targetEd).catch(() => null));
+        }
+        if (targetTid) {
+          followups.push(client.tournamentEditions(targetTid).catch(() => null));
+        }
+        if (followups.length) await Promise.all(followups);
       }
       root.dispatchEvent(new CustomEvent('go-stats:bootstrap-ready', {detail: payload || {}}));
     } catch (error) {

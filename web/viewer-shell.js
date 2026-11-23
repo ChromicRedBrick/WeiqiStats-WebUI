@@ -354,11 +354,21 @@
           }));
         if (matchedPlayers.length) groups.push({key: 'players', label: '棋手', items: matchedPlayers});
 
-        const matchedEditions = (standalone ? (remoteQuery === q ? remoteEditions : []) : indexList)
-          .filter(edition => standalone || normalize([edition.tournament_short, edition.tournament_name,
+        const localEditions = (window.TOURNAMENTS_INDEX || indexList)
+          .filter(edition => normalize([edition.tournament_short, edition.tournament_name,
             `${M.editionLabel(edition)}`, edition.edition_number, edition.year, edition.champion,
             edition.runner_up, edition.id].join(' ')).includes(q))
-          .sort((a, b) => b.seq - a.seq)
+          .sort((a, b) => (b.seq || 0) - (a.seq || 0));
+        const seenEditions = new Set();
+        const combinedEditions = [];
+        for (const list of [remoteQuery === q ? remoteEditions : [], localEditions]) {
+          for (const edition of list) {
+            if (!edition || !edition.id || seenEditions.has(edition.id)) continue;
+            seenEditions.add(edition.id);
+            combinedEditions.push(edition);
+          }
+        }
+        const matchedEditions = combinedEditions
           .slice(0, 6)
           .map(edition => ({
             kind: 'edition',
@@ -404,20 +414,41 @@
         if (matchedMatches.length) groups.push({key: 'matches', label: '对局', items: matchedMatches});
 
         const dataClient = window.GoStatsDataClient;
-        if (dataClient && typeof dataClient.search === 'function' && remoteQuery !== q) {
+        if (dataClient && (typeof dataClient.search === 'function' || typeof dataClient.catalogSearch === 'function') && remoteQuery !== q) {
           clearTimeout(remoteTimer);
           const token = ++remoteToken;
           remoteTimer = setTimeout(async () => {
             const term = query.trim().slice(0, 40);
             try {
-              const requests = [dataClient.search({q: term, page: 1, page_size: 6, sort: 'date_desc'})];
-              if (standalone) requests.push(dataClient.searchPlayers(term, 6), dataClient.searchCatalog(term));
-              const [matches, players, editions] = await Promise.allSettled(requests);
+              const reqMatches = typeof dataClient.search === 'function'
+                ? dataClient.search({q: term, page: 1, page_size: 6, sort: 'date_desc'})
+                : Promise.resolve({items: []});
+              const reqPlayers = standalone && typeof dataClient.searchPlayers === 'function'
+                ? dataClient.searchPlayers(term, 6)
+                : Promise.resolve({items: []});
+              const reqCatalog = typeof dataClient.catalogSearch === 'function'
+                ? dataClient.catalogSearch(term, 6)
+                : Promise.resolve({editions: [], items: []});
+              const [matches, players, catalog] = await Promise.allSettled([reqMatches, reqPlayers, reqCatalog]);
               if (token !== remoteToken) return;
               remoteQuery = q;
               remoteMatches = matches.value?.items || [];
-              remotePlayers = players?.value?.items || [];
-              remoteEditions = editions?.value?.items || [];
+              remotePlayers = players.value?.items || [];
+              const cat = catalog.value || {};
+              const eds = Array.isArray(cat.editions) && cat.editions.length ? cat.editions : [];
+              remoteEditions = eds.length ? eds : (cat.items || [])
+                .map(it => it.kind === 'tournament' && it.latest_edition_id ? {
+                  id: it.latest_edition_id,
+                  tournament_id: it.id,
+                  tournament_short: it.short_name || it.name_zh || it.id,
+                  tournament_name: it.name_zh || it.short_name || it.id,
+                  edition_number: it.latest_edition_number ?? null,
+                  year: it.latest_year ?? null,
+                  champion: it.champion || '',
+                  runner_up: '',
+                  seq: 0,
+                } : it)
+                .filter(it => it && it.id && it.kind !== 'tournament');
               if (dialog.open && normalize(input.value).trim() === q) {
                 render(input.value);
               }

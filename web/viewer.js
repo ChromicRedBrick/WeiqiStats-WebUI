@@ -8,7 +8,6 @@
       const publicMode = !!(dataClient && dataClient.isPublic);
       const lazyMode = !!(dataClient && (dataClient.isLazy || dataClient.isPublic));
       let editionRequestToken = 0;
-      let catalogPagesBound = false;
 
       const M = window.GoViewerModel;
       const esc = M.escape;
@@ -39,15 +38,8 @@
       let currentEditionId = (initialRoute ? initialRoute.ed : urlParams.get("ed")) || "";
       let lastDrawerTrigger = null;
       let lastHofTrigger = null;
-      let currentFilter = "all";
-      let currentTournament = 'all';
-      let currentCategory = 'all';
-      let currentCountry = 'all';
-      let currentCompetitionType = 'all';
-      let currentCatalogQuery = '';
-      let currentYearFrom = '';
-      let currentYearTo = '';
-      let currentCatalogSort = 'desc';
+      let currentTournamentId = '';
+      let currentTournamentEditions = [];
       let catalog = null;
       let zoomLevel = 1.0;
       let activeHighlightPlayer = null;
@@ -58,6 +50,8 @@
       let currentOrientation = ["horizontal", "vertical"].includes(initialRouteOrient || storedOrientation) ? (initialRouteOrient || storedOrientation) : "horizontal";
       // 赛段范围：正赛（默认） / 预选赛，按资料中的阶段和地区分组展示。
       let currentScope = initialRoute ? initialRoute.scope : (['prelim','unclassified'].includes(urlParams.get('scope')) ? urlParams.get('scope') : 'main');
+      let prelimViewMode = 'tree';
+      let activePrelimGroupKey = '';
       let routeView = initialRoute ? initialRoute.view : (urlParams.get('view') === 'table' ? 'table' : 'chart');
       // 外观主题与对阵呈现相互独立；旧“维基版/现代版”按原实际效果映射：维基=紧凑表格+浅色，现代=卡片+深色。
       const legacyThemeFallback = legacyMode === 'modern' || currentViewMode === 'modern' ? 'dark' : 'light';
@@ -115,8 +109,10 @@
       function ensureIndexItem(data) {
         const id = data && data.edition && data.edition.id;
         if (!id || indexList.some(item => item.id === id)) return;
-        indexList.push(boot && boot.indexItemFromEdition
-          ? boot.indexItemFromEdition(data) : {id, tournament_id: data.tournament && data.tournament.id});
+        const item = boot && boot.indexItemFromEdition
+          ? boot.indexItemFromEdition(data) : {id, tournament_id: data.tournament && data.tournament.id};
+        if (boot && boot.mergeIndex) boot.mergeIndex([item]);
+        else indexList.push(item);
       }
       async function ensureEditionData(edId) {
         if (allData[edId]) return true;
@@ -130,22 +126,17 @@
       }
       async function init() {
         if (!Array.isArray(window.TOURNAMENTS_INDEX)) {
-          const msg = '未能加载赛事索引文件。';
-          const notice = document.getElementById('viewerNotice');
-          const summary = document.getElementById('dataSummary');
-          if (notice) notice.textContent = msg;
-          if (summary) summary.textContent = '资料索引未加载';
-          return;
+          window.TOURNAMENTS_INDEX = indexList;
         }
         if (boot && boot.ready) {
           try {
             await boot.ready;
           } catch (error) {
-            if (publicMode || boot.hasLocalIndex) {
-              const notice = document.getElementById('viewerNotice');
-              if (notice) notice.textContent = publicMode ? '公开资料服务暂时不可用，请稍后重试。' : '读取本地资料失败，请刷新或重新打开。';
-              return;
-            }
+            const notice = document.getElementById('viewerNotice');
+            const summary = document.getElementById('dataSummary');
+            if (notice) notice.textContent = publicMode ? '公开资料服务暂时不可用，请稍后重试。' : '读取本地资料失败，请确认查看器服务仍在运行后刷新。';
+            if (summary) summary.textContent = '资料加载失败';
+            return;
           }
         }
         playerAliases = {
@@ -153,27 +144,53 @@
           names: window.PLAYER_NAME_ALIASES || playerAliases.names || {},
         };
         refreshPlayerDirectory();
-        if (lazyMode && dataClient) {
-          const requested = urlParams.get('ed');
-          const newest = indexList.length
-            ? [...indexList].sort((a, b) => window.GoViewerCatalog.compareEditions(a, b, 'desc'))[0].id
-            : null;
-          const defaultId = indexList.some(e => e.id === currentEditionId) ? currentEditionId : newest;
-          const target = requested || defaultId;
-          if (target) {
-            try { await ensureEditionData(target); } catch (error) {
+        const requestedEdition = (initialRoute ? initialRoute.ed : urlParams.get('ed')) || '';
+        const defaultId = (boot && boot.defaultEdition && boot.defaultEdition.id)
+          || (boot && boot.featured && boot.featured.items && boot.featured.items[0] && boot.featured.items[0].latest_edition_id)
+          || (indexList[0] && indexList[0].id)
+          || '';
+        let targetId = requestedEdition || currentEditionId || defaultId;
+        if (lazyMode && dataClient && targetId) {
+          try { await ensureEditionData(targetId); } catch (_) {
+            if (requestedEdition && defaultId && defaultId !== requestedEdition) {
+              targetId = defaultId;
+              try { await ensureEditionData(targetId); } catch (__) {}
+              deepLinkNotice('未找到指定届次，已切换至默认届次。');
+            } else {
               deepLinkNotice('读取届次资料失败，请稍后重试。');
             }
           }
         }
-        catalog = window.GoViewerCatalog.create({indexList, allData, getState: catalogState, onChange: changeCatalogFilters});
-        if (indexList.length === 0) {
+        const bootStats = lazyMode && boot ? boot.stats : null;
+        const isEmptyLibrary = bootStats
+          ? Number(bootStats.editions || 0) === 0
+          : (!targetId && indexList.length === 0);
+
+        catalog = window.GoViewerCatalog.create({
+          dataClient,
+          boot,
+          getCurrentEditionId: () => currentEditionId,
+          getFlagSvg,
+          onSelectEdition: async (edId, selOpts = {}) => {
+            const ok = await loadEdition(edId, {push: true, clearMatch: true, fromCatalog: selOpts.fromCatalog});
+            if (ok && selOpts.closeMobile) setMobileCatalog(false);
+            return ok;
+          },
+          onTournamentEditions: (tid, items) => {
+            currentTournamentId = tid || '';
+            currentTournamentEditions = items || [];
+            updateNavigation();
+          },
+        });
+
+        if (isEmptyLibrary) {
           // 全新空库是合法状态：给出可执行的下一步，而不是误报“数据文件缺失”。
           document.getElementById('dataSummary').textContent = '暂无赛事资料';
-          document.getElementById('sidebarCount').textContent = '0 届';
+          document.getElementById('sidebarCount').textContent = '0 项赛事';
           document.getElementById('bannerTitle').textContent = '暂无赛事资料';
           document.getElementById('viewerNotice').textContent = '当前数据工作区为空，请先导入数据。';
           document.getElementById('boardRoundSummary').textContent = '';
+          await catalog.initView({mode: 'home'});
           setupEventListeners();
           for (const id of ['btnEditionRoster', 'btnExportBracket', 'btnPrevEd', 'btnNextEd']) {
             const control = document.getElementById(id);
@@ -182,28 +199,13 @@
           return;
         }
 
-        const bootStats = lazyMode && boot ? boot.stats : null;
         if (bootStats) {
           document.getElementById('dataSummary').textContent = `${bootStats.tournaments || 0} 项赛事 · ${bootStats.editions || 0} 届 · ${(bootStats.matches || 0).toLocaleString('zh-CN')} 局已录赛果`;
         } else {
           const matches = Object.values(allData).flatMap(d => d.rounds.flatMap(r => r.matches));
           document.getElementById('dataSummary').textContent = `${new Set(indexList.map(e => e.tournament_id)).size} 项赛事 · ${indexList.length} 届 · ${matches.filter(M.hasResult).length.toLocaleString('zh-CN')} 局已录赛果`;
         }
-        document.getElementById('sidebarCount').textContent = `${indexList.length} 届`;
-        const requestedEdition = (initialRoute ? initialRoute.ed : urlParams.get('ed')) || '';
-        const hasEdition = id => Boolean(id && (allData[id] || indexList.some(e => e && e.id === id)));
-        const pickDefaultEdition = () => {
-          const sorted = [...indexList].sort((a, b) => window.GoViewerCatalog.compareEditions(a, b, 'desc'));
-          if (publicMode) return (sorted[0] && sorted[0].id) || '';
-          const recentWorld = sorted.find(
-            item => item && M.isWorld(item) && !M.isTeamCompetition({}, item) && (item.champion_id || item.champion)
-          );
-          return (recentWorld && recentWorld.id)
-            || (sorted[0] && sorted[0].id)
-            || '';
-        };
-        if (hasEdition(requestedEdition)) currentEditionId = requestedEdition;
-        else if (!hasEdition(currentEditionId)) currentEditionId = pickDefaultEdition() || currentEditionId;
+        currentEditionId = targetId;
         // Apply view mode & orientation
         syncViewModeButtons(allData[currentEditionId]);
         // 旧偏好迁移：首次加载时把旧“维基/现代”同时写入新的呈现与主题键。
@@ -212,8 +214,15 @@
           if (!localStorage.getItem(THEME_KEY)) localStorage.setItem(THEME_KEY, themePreference);
         } catch (_) {}
 
-        renderEditionList();
-        await loadEdition(currentEditionId, {push: false});
+        const initialTournamentId = (allData[currentEditionId] && allData[currentEditionId].tournament && allData[currentEditionId].tournament.id)
+          || (boot && boot.defaultEdition && boot.defaultEdition.tournament_id)
+          || '';
+        await catalog.initView({
+          mode: requestedEdition ? 'tournament' : 'home',
+          tournamentId: initialTournamentId,
+          editionId: currentEditionId,
+        });
+        await loadEdition(currentEditionId, {push: false, skipCatalogSwitch: true, skipUrlSync: !requestedEdition});
         applyingDeepLink = true;
         try {
           if (routeView === 'table') {
@@ -223,12 +232,9 @@
         } finally {
           applyingDeepLink = false;
         }
-        if (publicMode && !catalogPagesBound) {
-          catalogPagesBound = true;
-          window.addEventListener('go-stats:catalog-page', () => {
-            renderEditionList();
-            const count = document.getElementById('sidebarCount');
-            if (count) count.textContent = `${indexList.length} 届`;
+        if (publicMode) {
+          window.addEventListener('go-stats:leaderboards', () => {
+            if (document.getElementById('hofModal')?.classList.contains('open')) renderHofGrid();
           });
         }
         setupEventListeners();
@@ -282,47 +288,15 @@
         }
       }
 
-      // Render Left Sidebar List
-      function catalogState() {
-        return {
-          category: currentCategory,
-          country: currentCountry,
-          tournament: currentTournament,
-          competitionType: currentCompetitionType,
-          status: currentFilter,
-          query: currentCatalogQuery,
-          yearFrom: currentYearFrom,
-          yearTo: currentYearTo,
-          sort: currentCatalogSort,
-        };
-      }
-      function changeCatalogFilters(next) {
-        currentCategory = next.category ?? currentCategory;
-        currentCountry = next.country ?? currentCountry;
-        currentTournament = next.tournament ?? currentTournament;
-        currentCompetitionType = next.competitionType ?? currentCompetitionType;
-        currentFilter = next.status ?? currentFilter;
-        currentCatalogQuery = next.query ?? currentCatalogQuery;
-        currentYearFrom = next.yearFrom ?? currentYearFrom;
-        currentYearTo = next.yearTo ?? currentYearTo;
-        currentCatalogSort = next.sort ?? currentCatalogSort;
-        renderEditionList();
-        const list = filteredEditions();
-        if (list.length && !list.some(item => item.id === currentEditionId)) {
-          const fallback = currentCatalogSort === 'asc' ? list.at(-1) : list[0];
-          loadEdition(fallback.id, {push: true, clearMatch: true});
-        }
-        updateNavigation();
-      }
-      function filteredEditions() {
-        return window.GoViewerCatalog.filterEditions(indexList, allData, catalogState());
+      // Edition Navigation (always along the current tournament's editions)
+      function orderedTournamentEditionsAsc() {
+        return window.GoViewerCatalog.sortEditions(currentTournamentEditions || [], 'asc');
       }
       function updateNavigation() {
-        const list = filteredEditions(), i = list.findIndex(e => e.id === currentEditionId);
-        const stepDir = currentCatalogSort === 'asc' ? 1 : -1;
-        const olderIdx = i - stepDir, newerIdx = i + stepDir;
-        document.getElementById('btnPrevEd').disabled = i < 0 || olderIdx < 0 || olderIdx >= list.length;
-        document.getElementById('btnNextEd').disabled = i < 0 || newerIdx < 0 || newerIdx >= list.length;
+        const list = orderedTournamentEditionsAsc();
+        const i = list.findIndex(e => e.id === currentEditionId);
+        document.getElementById('btnPrevEd').disabled = i <= 0;
+        document.getElementById('btnNextEd').disabled = i < 0 || i >= list.length - 1;
       }
       function syncUrl(options) {
         if (restoringRoute) return;
@@ -352,65 +326,6 @@
         else url.searchParams.delete('view');
         try { history[opts.push ? 'pushState' : 'replaceState'](null, '', url); } catch (_) {}
       }
-      function renderOngoingGroup() {
-        const group = document.getElementById('ongoingEditionsGroup');
-        const list = document.getElementById('ongoingEditionsList');
-        if (!group || !list) return;
-        const items = boot?.ongoingEditions ?? indexList
-          .filter(item => M.isMainOngoing(item, allData))
-          .sort((a, b) => window.GoViewerCatalog.compareEditions(a, b, 'desc'));
-        group.hidden = !items.length;
-        document.getElementById('ongoingEditionsCount').textContent = String(items.length);
-        list.replaceChildren(...items.map(item => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `ongoing-edition-chip${item.id === currentEditionId ? ' active' : ''}`;
-          btn.dataset.ongoingId = item.id;
-          if (item.id === currentEditionId) btn.setAttribute('aria-current', 'true');
-          btn.innerHTML = `<span class="ongoing-chip-dot" aria-hidden="true"></span>
-            <span class="ongoing-chip-name">${esc(item.tournament_short || item.tournament_name)} ${esc(M.editionLabel(item))}</span>`;
-          btn.onclick = async () => {
-            if (await loadEdition(item.id, {push: true, clearMatch: true})) setMobileCatalog(false);
-          };
-          return btn;
-        }));
-      }
-
-      function renderEditionList() {
-        renderOngoingGroup();
-        const listContainer = document.getElementById("editionList");
-        listContainer.innerHTML = "";
-
-        const filtered = filteredEditions();
-        catalog?.refresh();
-        if (!filtered.length) {
-          listContainer.innerHTML = '<div class="catalog-empty">没有符合条件的赛事届次，请调整上方筛选条件。</div>';
-        }
-
-        let previousYear = null;
-        filtered.forEach(item => {
-          if (item.year !== previousYear) {
-            const year = document.createElement('div'); year.className = 'edition-year'; year.textContent = item.year;
-            listContainer.appendChild(year); previousYear = item.year;
-          }
-          const div = document.createElement("button");
-          div.type = 'button';
-          div.className = `edition-item ${item.id === currentEditionId ? 'active' : ''}`;
-          if (item.id === currentEditionId) div.setAttribute('aria-current', 'true');
-          div.dataset.id = item.id;
-          div.innerHTML = `
-            <span>
-              <span class="edition-item-title">${esc(item.tournament_short)} ${M.editionLabel(item)}</span>
-              <span class="edition-item-sub">${item.champion ? getFlagSvg(item.champion_nat) : ''} ${esc(M.editionChampionText(item))}</span>
-            </span>
-            <span class="edition-item-badge">${esc(item.finals_score)}</span>
-          `;
-          div.onclick = async () => {
-            if (await loadEdition(item.id, {push: true, clearMatch: true})) setMobileCatalog(false);
-          };
-          listContainer.appendChild(div);
-        });
-      }
 
       // Load a Specific Tournament Edition
       function loadEdition(edId, options) {
@@ -425,7 +340,6 @@
             allData[edId] = data;
             ensureIndexItem(data);
             refreshPlayerDirectory();
-            renderEditionList();
             const notice = document.getElementById('viewerNotice');
             if (notice) notice.textContent = '';
             renderEdition(edId, opts);
@@ -442,19 +356,10 @@
       }
       function renderEdition(edId, options) {
         const opts = options || {};
-        if (!allData[edId] || !indexList.some(e => e.id === edId)) return;
-        if (!filteredEditions().some(e => e.id === edId)) {
-          currentFilter = 'all';
-          currentTournament = 'all';
-          currentCategory = 'all';
-          currentCountry = 'all';
-          currentCompetitionType = 'all';
-          currentCatalogQuery = '';
-          currentYearFrom = '';
-          currentYearTo = '';
-          catalog?.closePicker();
-          document.querySelectorAll('.aside-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'all'));
-          renderEditionList();
+        if (!allData[edId]) return;
+        if (edId !== currentEditionId) {
+          activePrelimGroupKey = '';
+          prelimViewMode = 'tree';
         }
         currentEditionId = edId;
         clearHighlight();
@@ -463,16 +368,9 @@
         if (currentScope === 'unclassified' && !M.roundsForView(allData[edId]).unclassifiedRounds.length) currentScope = 'main';
         syncViewModeButtons(allData[edId]);
 
-        // Update active class in sidebar
-        document.querySelectorAll('.edition-item, .ongoing-edition-chip').forEach(el => {
-          const selected = (el.dataset.ongoingId || el.dataset.id) === edId;
-          el.classList.toggle("active", selected);
-          if (selected) el.setAttribute('aria-current', 'true');
-          else el.removeAttribute('aria-current');
-        });
-
-        const meta = indexList.find(x => x.id === edId);
         const data = allData[edId];
+        const meta = indexList.find(x => x.id === edId)
+          || (boot && boot.indexItemFromEdition ? boot.indexItemFromEdition(data) : {id: edId, tournament_id: data.tournament?.id});
 
         if (!data) {
           console.error("No detail data for:", edId);
@@ -482,8 +380,16 @@
         renderBanner(meta, data);
         renderCurrentBracket(data);
         frameCurrentView();
+        if (!opts.skipCatalogSwitch) {
+          catalog?.syncActiveEdition?.(meta, {
+            openTournament: opts.openTournament === true,
+            skipRecent: opts.skipRecent === true,
+          });
+        } else if (!opts.skipRecent) {
+          catalog?.recordRecent?.(meta, data);
+        }
         updateNavigation();
-        if (!opts.fromRoute) syncUrl({
+        if (!opts.fromRoute && !opts.skipUrlSync) syncUrl({
           push: Boolean(opts.push),
           match: opts.clearMatch ? null : undefined,
           tab: opts.clearMatch ? null : undefined,
@@ -534,7 +440,8 @@
             const leagues = window.GoViewerLeague.partition(data, view.mainRounds);
             isPureLeague = leagues.groups.length > 0 && leagues.rest.length === 0;
           }
-          orientGroup.hidden = !data || currentScope !== 'main' || currentViewMode === 'draw' || isTeam || isPureLeague;
+          const prelimTreeActive = Boolean(data && currentScope === 'prelim' && prelimViewMode === 'tree' && resolvePrelimTreeState(data).hasTrees);
+          orientGroup.hidden = !data || (currentScope !== 'main' && !prelimTreeActive) || currentViewMode === 'draw' || isTeam || isPureLeague;
         }
       }
 
@@ -557,7 +464,7 @@
         activeHighlightPlayer = null;
         document.getElementById('btnHighlightClear').disabled = true;
         syncViewModeButtons(data);
-        if (!opts.fromRoute) syncUrl({push: opts.push !== false});
+        if (!opts.fromRoute && !opts.skipUrlSync) syncUrl({push: opts.push !== false});
 
         if (data) {
           renderCurrentBracket(data);
@@ -576,7 +483,7 @@
         }
         const data = allData[currentEditionId];
         syncViewModeButtons(data);
-        if (!opts.fromRoute) syncUrl({push: opts.push !== false});
+        if (!opts.fromRoute && !opts.skipUrlSync) syncUrl({push: opts.push !== false});
         if (data && currentViewMode !== 'draw') {
           renderCurrentBracket(data);
           frameCurrentView();
@@ -671,6 +578,21 @@
           ? Math.max(0, (canvas.scrollHeight * zoomLevel - viewport.clientHeight) / 2) : 0;
       }
 
+      function resolvePrelimTreeState(data) {
+        if (!data) return {groups: [], hasTrees: false, activeGroup: null, leagues: {groups: [], leagueRounds: []}, nonLeagueData: data};
+        const leagues = window.GoViewerLeague
+          ? window.GoViewerLeague.partition(data, (data.rounds || []).filter(M.isPrelimRound))
+          : {groups: [], leagueRounds: []};
+        const leagueIds = new Set(leagues.leagueRounds.map(r => r.id));
+        const nonLeagueData = leagueIds.size ? {...data, rounds: (data.rounds || []).filter(r => !leagueIds.has(r.id))} : data;
+        const treeState = M.prelimTreeGroups(nonLeagueData);
+        const activeGroup = treeState.groups.find(g => g.key === activePrelimGroupKey && g.tree)
+          || treeState.groups.find(g => g.tree)
+          || null;
+        if (activeGroup) activePrelimGroupKey = activeGroup.key;
+        return {...treeState, activeGroup, leagues, nonLeagueData};
+      }
+
       function scopeRounds(data) {
         if (currentScope === 'prelim') {
           return (data.rounds || []).filter(r => M.isPrelimRound(r));
@@ -682,6 +604,11 @@
         const rounds = scopeRounds(data);
         const decided = rounds.flatMap(r => r.matches).filter(M.hasResult).length;
         if (currentScope === 'prelim') {
+          const ps = resolvePrelimTreeState(data);
+          if (ps.hasTrees && prelimViewMode === 'tree' && ps.activeGroup?.tree) {
+            const grpDecided = ps.activeGroup.rounds.flatMap(r => r.matches || []).filter(M.hasResult).length;
+            return `预选赛 ${ps.groups.length} 组 · ${ps.activeGroup.label || ps.activeGroup.region} · ${ps.activeGroup.rounds.length} 轮 · ${grpDecided} 局已录赛果`;
+          }
           const groups = M.prelimGroups(data);
           return `预选赛 ${groups.length} 组 · ${rounds.length} 轮 · ${decided} 局已录赛果`;
         }
@@ -866,17 +793,45 @@
         delete canvas.dataset.league;
         delete canvas.dataset.binaryTree;
         delete canvas.dataset.doubleElimination;
+        delete canvas.dataset.prelimTree;
         delete canvas.dataset.bracketOrientation;
         document.body.dataset.competitionView = M.isTeamCompetition(data, indexList.find(e => e.id === currentEditionId)) ? 'team' : 'bracket';
-        if ((currentScope === 'prelim' && M.prelimGroups(data).length) || currentScope === 'unclassified') {
+        if (currentScope === 'prelim' && M.prelimGroups(data).length) {
+          const ps = resolvePrelimTreeState(data);
+          if (ps.hasTrees && prelimViewMode === 'tree' && ps.activeGroup?.tree) {
+            canvas.querySelectorAll('.prelim-view, .round-col').forEach(el => el.remove());
+            canvas.dataset.prelimTree = 'true';
+            canvas.dataset.bracketOrientation = currentOrientation;
+            currentEdges = ps.activeGroup.tree.edges;
+            svg.innerHTML = '';
+            svg.removeAttribute('width'); svg.removeAttribute('height');
+            svg.style.width = '0px'; svg.style.height = '0px';
+            syncViewModeButtons(data);
+            const prelimView = {mainRounds: ps.activeGroup.tree.rounds, thirdPlaceRound: null};
+            if (currentViewMode === 'wiki') renderWikiBracket(ps.nonLeagueData, prelimView, false, {prelimTree: true});
+            else renderModernBracket(ps.nonLeagueData, prelimView, false, {prelimTree: true});
+            if (ps.leagues.groups.length) renderLeagues(data, ps.leagues.groups);
+            renderRoundNav();
+            window.GoNumbering?.decorate?.(canvas);
+            observeBracketLayout();
+            return;
+          }
           currentEdges = [];
           svg.innerHTML = '';
           svg.removeAttribute('width'); svg.removeAttribute('height');
           svg.style.width = '0px'; svg.style.height = '0px';
-          const leagues = currentScope === 'prelim' ? window.GoViewerLeague.partition(data, (data.rounds || []).filter(M.isPrelimRound)) : {groups: [], leagueRounds: []};
-          const leagueIds = new Set(leagues.leagueRounds.map(r => r.id));
-          renderPrelimPanel(leagues.groups.length ? {...data, rounds: data.rounds.filter(r => !leagueIds.has(r.id))} : data);
-          if (leagues.groups.length) renderLeagues(data, leagues.groups);
+          renderPrelimPanel(ps.nonLeagueData);
+          if (ps.leagues.groups.length) renderLeagues(data, ps.leagues.groups);
+          syncViewModeButtons(data);
+          renderRoundNav();
+          return;
+        }
+        if (currentScope === 'unclassified') {
+          currentEdges = [];
+          svg.innerHTML = '';
+          svg.removeAttribute('width'); svg.removeAttribute('height');
+          svg.style.width = '0px'; svg.style.height = '0px';
+          renderPrelimPanel(data);
           syncViewModeButtons(data);
           renderRoundNav();
           return;
@@ -921,10 +876,85 @@
 
       function renderRoundNav() {
         const nav = document.getElementById('bracketRoundNav');
-        const targets = Array.from(canvas.querySelectorAll('.round-col, .draw-stage-row, .prelim-round'), section => ({
-          section,
-          label: section.querySelector('.wiki-round-pill, .round-title, .draw-plaque-round, .prelim-round-head h4')
-        })).filter(item => item.label);
+        const data = allData[currentEditionId];
+        if (currentScope === 'prelim' && data) {
+          const ps = resolvePrelimTreeState(data);
+          if (ps.hasTrees) {
+            nav.replaceChildren();
+            nav.hidden = false;
+            const refreshPrelimView = () => {
+              const sum = document.getElementById('boardRoundSummary');
+              renderCurrentBracket(data);
+              if (sum) sum.textContent = scopeSummary(data);
+              frameCurrentView();
+              if (canvas.dataset.prelimTree === 'true') requestDraw();
+            };
+            for (const [mode, label] of [['tree', '晋级树'], ['list', '列表']]) {
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'round-chip prelim-mode-chip' + (prelimViewMode === mode ? ' active' : '');
+              btn.dataset.prelimMode = mode;
+              btn.setAttribute('aria-pressed', String(prelimViewMode === mode));
+              btn.textContent = label;
+              btn.onclick = () => {
+                if (prelimViewMode === mode) return;
+                prelimViewMode = mode;
+                refreshPrelimView();
+              };
+              nav.append(btn);
+            }
+            const sep = document.createElement('span');
+            sep.className = 'prelim-nav-sep';
+            sep.setAttribute('aria-hidden', 'true');
+            nav.append(sep);
+            for (const group of ps.groups) {
+              const btn = document.createElement('button');
+              btn.type = 'button';
+              const isSelected = prelimViewMode === 'tree' && group.key === ps.activeGroup?.key;
+              btn.className = 'round-chip prelim-group-chip' + (isSelected ? ' active' : '');
+              btn.dataset.prelimGroup = group.key;
+              btn.setAttribute('aria-pressed', String(isSelected));
+              const titleText = group.label || group.region;
+              const subText = group.tree?.qualifier?.name_zh ? `${group.tree.qualifier.name_zh} 出线` : `${group.games}局`;
+              btn.innerHTML = `${esc(titleText)}<small>${esc(subText)}</small>`;
+              btn.onclick = () => {
+                if (group.tree) {
+                  activePrelimGroupKey = group.key;
+                  prelimViewMode = 'tree';
+                  refreshPrelimView();
+                } else {
+                  prelimViewMode = 'list';
+                  refreshPrelimView();
+                  const section = [...canvas.querySelectorAll('.prelim-region')]
+                    .find(el => (el.dataset.group || el.dataset.region) === (group.label || group.region));
+                  if (section) {
+                    const origin = viewport.getBoundingClientRect(), target = section.getBoundingClientRect();
+                    viewport.scrollTo({left: viewport.scrollLeft + target.left - origin.left - 12, top: viewport.scrollTop + target.top - origin.top - 12});
+                  }
+                }
+              };
+              nav.append(btn);
+            }
+            return;
+          }
+        }
+        // 预选按组别分节时，跳转按钮按「组」组织：轮标题只写「第1轮」，按钮若只取轮标题
+        // 会得到一串同名按钮；这里为每个组只出一个按钮，文字用组名。
+        const seenGroups = new Set();
+        const targets = [];
+        for (const section of canvas.querySelectorAll('.round-col, .draw-stage-row, .prelim-round')) {
+          const group = section.classList.contains('prelim-round')
+            ? section.closest('.prelim-region[data-group]') : null;
+          if (group) {
+            if (seenGroups.has(group)) continue;
+            seenGroups.add(group);
+            const heading = group.querySelector('.prelim-region-head h3');
+            if (heading) targets.push({section: group, label: heading});
+            continue;
+          }
+          const label = section.querySelector('.wiki-round-pill, .round-title, .draw-plaque-round, .prelim-round-head h4');
+          if (label) targets.push({section, label});
+        }
         nav.replaceChildren();
         nav.hidden = targets.length < 2;
         if (nav.hidden) return;
@@ -1000,9 +1030,17 @@
           ${colorCell(loserColor)}
         </div>`;
       }
-      function prelimRoundBlock(round) {
+      function prelimRoundBlock(round, section) {
         // 综合预选组的轮名去掉“（统合）”括注，组标题已表达地区口径
-        const label = String(round.round_name || '').replace('（统合）', '');
+        let label = String(round.round_name || '').replace('（统合）', '');
+        // 按组别分节时，节标题已给出组别，轮标题只留「第N轮／决赛」这样的后段
+        if (section && section.label) {
+          const index = label.indexOf(section.label);
+          if (index >= 0) {
+            const tail = label.slice(index + section.label.length).replace(/^[｜|]\s*/, '').trim();
+            if (tail) label = tail;
+          }
+        }
         return `<section class="prelim-round">
           <header class="prelim-round-head">
             <h4 data-object-table="rounds" data-object-id="${esc(round.id)}" role="button" tabindex="0" title="编辑赛段资料">${esc(label)}</h4>
@@ -1020,11 +1058,11 @@
         const wrap = document.createElement('div');
         wrap.className = 'prelim-view';
         const totalGames = groups.reduce((n, g) => n + g.games, 0);
-        wrap.innerHTML = `<div class="prelim-intro">${unknown ? '未明确本赛或预选归属，或暂未接入晋级图；点击对局可查看详情与棋谱。' : '按阶段与地区分组；点击对局可查看详情与棋谱。'}共 ${groups.length} 组 · ${totalGames} 局。</div>` +
+        wrap.innerHTML = `<div class="prelim-intro">${unknown ? '未明确本赛或预选归属，或暂未接入晋级图；点击对局可查看详情与棋谱。' : '按阶段、地区与组别分组；点击对局可查看详情与棋谱。'}共 ${groups.length} 组 · ${totalGames} 局。</div>` +
           groups.map(g => `
-          <section class="prelim-region" data-region="${esc(g.region)}">
-            <header class="prelim-region-head"><h3>${esc(g.region)}</h3><span>${g.rounds.length} 轮 · ${g.games} 局</span></header>
-            ${g.rounds.map(prelimRoundBlock).join('')}
+          <section class="prelim-region" data-region="${esc(g.region)}"${g.label ? ` data-group="${esc(g.label)}"` : ''}>
+            <header class="prelim-region-head"><h3>${esc(g.label || g.region)}</h3><span>${g.label ? `${esc(g.region)} · ` : ''}${g.rounds.length} 轮 · ${g.games} 局</span></header>
+            ${g.rounds.map(round => prelimRoundBlock(round, g)).join('')}
           </section>`).join('');
         canvas.appendChild(wrap);
         wrap.querySelectorAll('[data-player-id]').forEach(el => {
@@ -1126,7 +1164,8 @@
         return node;
       }
 
-      function stageNodesForRounds(mainRounds, data) {
+      function stageNodesForRounds(mainRounds, data, opts = {}) {
+        if (opts?.prelimTree) return mainRounds.map(round => round.matches);
         const finalRound = mainRounds.find(isFinalRoundName);
         const finalId = finalRound?.matches[0]?.id;
         return mainRounds.map((round, rIndex) => {
@@ -1141,26 +1180,28 @@
         });
       }
 
-      function resolveKnockoutPlan(roundsView, data) {
-        const hasDoubleElimination = M.doubleEliminationLanes(roundsView.mainRounds, currentEdges);
-        const stageNodes = stageNodesForRounds(roundsView.mainRounds, data);
+      function resolveKnockoutPlan(roundsView, data, opts = {}) {
+        const isPrelimTree = Boolean(opts?.prelimTree);
+        const hasDoubleElimination = isPrelimTree ? null : M.doubleEliminationLanes(roundsView.mainRounds, currentEdges);
+        const stageNodes = stageNodesForRounds(roundsView.mainRounds, data, opts);
         // 只有届次资料能对上「首轮局数 + 2×第二轮局数」的参赛人数时，第二轮才可能
         // 整场轮空（20 人本赛 = 4 + 2×8）。缺局的完整签表人数对不上，不把空来源当轮空；
         // 没有登记规模的旧届次只在明确记录过轮空时放宽。
         const bracketSize = Number(data.edition?.bracket_size);
         const impliedPlayers = (stageNodes[0]?.length || 0) + 2 * (stageNodes[1]?.length || 0);
-        const allowByeTargets = Number.isInteger(bracketSize) && bracketSize > 0
-          ? bracketSize === impliedPlayers
-          : Number(data.edition?.bye_count) > 0;
+        const allowByeTargets = isPrelimTree ? true
+          : (Number.isInteger(bracketSize) && bracketSize > 0
+            ? bracketSize === impliedPlayers
+            : Number(data.edition?.bye_count) > 0);
         const plan = hasDoubleElimination ? null
           : window.GoViewerLayout.orderKnockoutStages(stageNodes, currentEdges, {allowByeTargets});
         const roundsMatches = plan ? plan.stages : stageNodes;
         const mainRounds = plan ? roundsView.mainRounds.map((round, i) => (
-          isFinalRoundName(round) && M.finalSeries(round, data)
+          !isPrelimTree && isFinalRoundName(round) && M.finalSeries(round, data)
             ? round
             : {...round, matches: plan.stages[i]}
         )) : roundsView.mainRounds;
-        const doubleLanes = M.doubleEliminationLanes(mainRounds, currentEdges);
+        const doubleLanes = isPrelimTree ? null : M.doubleEliminationLanes(mainRounds, currentEdges);
         const doubleBlocks = doubleLanes ? M.doubleEliminationBlocks(mainRounds, currentEdges) : null;
         return {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks};
       }
@@ -1221,17 +1262,18 @@
       // ----------------------------------------------------
       // View Mode A: Graphite workspace with aligned advancement stages.
       // ----------------------------------------------------
-      function renderModernBracket(data, roundsView = extractRoundsData(data), leagueMode = false) {
+      function renderModernBracket(data, roundsView = extractRoundsData(data), leagueMode = false, opts = {}) {
+        const isPrelimTree = Boolean(opts?.prelimTree);
         canvas.querySelectorAll('.round-col').forEach(col => col.remove());
         const vertical = currentOrientation === 'vertical';
-        const {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks} = resolveKnockoutPlan(roundsView, data);
+        const {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks} = resolveKnockoutPlan(roundsView, data, opts);
         canvas.dataset.binaryTree = String(Boolean(plan));
         canvas.dataset.doubleElimination = String(Boolean(doubleLanes));
         const {thirdPlaceRound} = roundsView;
         const stages = [], containers = [];
         let third = null;
         mainRounds.forEach((round, index) => {
-          const final = isFinalRoundName(round);
+          const final = !isPrelimTree && isFinalRoundName(round);
           const games = roundsMatches[index];
           const column = document.createElement('div');
           column.className = 'round-col'; column.dataset.roundOrder = round.round_order;
@@ -1239,7 +1281,7 @@
             <div class="round-title" ${round.source_rounds ? '' : `data-object-table="rounds" data-object-id="${esc(round.id)}" role="button" tabindex="0"`} title="${round.source_rounds ? '按赛制合并显示的原始赛段' : '编辑赛段资料'}"><span class="round-step">${String(index + 1).padStart(2,'0')}</span>${esc(M.roundDisplayName(round))}</div>
             <div class="round-date">${esc(round.date_range || '日期未载')} · ${round.matches.length}局</div>
             </div><div class="modern-stage round-matches"></div>`;
-          column.querySelector('.round-title').title = round.round_name;
+          column.querySelector('.round-title').title = round.source_round_name || round.round_name;
           canvas.appendChild(column);
           const stage = column.querySelector('.modern-stage'); containers.push(stage);
           const nodes = [];
@@ -1384,13 +1426,14 @@
       // ----------------------------------------------------
       // View Mode B: Wikipedia Compact (Classic Paper Style)
       // ----------------------------------------------------
-      function renderWikiBracket(data, roundsView = extractRoundsData(data), leagueMode = false) {
+      function renderWikiBracket(data, roundsView = extractRoundsData(data), leagueMode = false, opts = {}) {
+        const isPrelimTree = Boolean(opts?.prelimTree);
         const columns = canvas.querySelectorAll(".round-col");
         columns.forEach(col => col.remove());
 
         const vertical = currentOrientation === 'vertical';
         const meta = indexList.find(x => x.id === currentEditionId) || {};
-        const {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks} = resolveKnockoutPlan(roundsView, data);
+        const {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks} = resolveKnockoutPlan(roundsView, data, opts);
         const byeCompact = Boolean(plan?.byeCompact);
         canvas.dataset.binaryTree = String(Boolean(plan));
         canvas.dataset.doubleElimination = String(Boolean(doubleLanes));
@@ -1398,13 +1441,13 @@
         if (mainRounds.length === 0) return;
 
         // Detect 32-player bracket (16 matches in R1, 8 in R2)
-        const is32PlayerCompact = !vertical && !plan && !doubleLanes && mainRounds[0]?.matches.length === 16 && mainRounds[1]?.matches.length === 8 &&
+        const is32PlayerCompact = !isPrelimTree && !vertical && !plan && !doubleLanes && mainRounds[0]?.matches.length === 16 && mainRounds[1]?.matches.length === 8 &&
           mainRounds[0].matches.every((m, i) => currentEdges.some(e => e.sourceId === m.id && e.kind === 'winner' && e.targetId === mainRounds[1].matches[Math.floor(i / 2)].id));
 
         // Detect 24-player or 48-player bracket where Round 1 has byes feeding Round 2
         // 24-player: R1 has 8 matches, R2 has 8 matches (8 players bye)
         // 48-player: R1 has 16 matches, R2 has 16 matches (16 players bye)
-        const is24Or48Compact = !vertical && !is32PlayerCompact && !doubleLanes && (function() {
+        const is24Or48Compact = !isPrelimTree && !vertical && !is32PlayerCompact && !doubleLanes && (function() {
           if (mainRounds.length < 2) return false;
           const isGroupStage = (mainRounds[0]?.matches || []).some(m => /^GRP-/.test(m.bracket_code || ''));
           if (isGroupStage) return false;
@@ -1464,7 +1507,7 @@
           firstTargets.every(Boolean);
 
         roundsMatches.forEach((matches, rIndex) => {
-          const isFinalRound = isFinalRoundName(mainRounds[rIndex]);
+          const isFinalRound = !isPrelimTree && isFinalRoundName(mainRounds[rIndex]);
           const positions = [];
 
           if (is32PlayerCompact && rIndex === 0) {
@@ -1575,7 +1618,7 @@
         }
 
         mainRounds.forEach((round, rIndex) => {
-          const isFinalRound = isFinalRoundName(round);
+          const isFinalRound = !isPrelimTree && isFinalRoundName(round);
           const isR1Compact = (is32PlayerCompact && rIndex === 0) || (is24Or48Compact && rIndex === 0);
 
           const matches = roundsMatches[rIndex];
@@ -1595,7 +1638,7 @@
           const stageStyle = vertical ? `width: ${totalStageExtent}px;` : `height: ${totalStageExtent}px;`;
           col.innerHTML = `
             <div class="wiki-round-head">
-              <div class="wiki-round-pill" ${round.source_rounds ? '' : `data-object-table="rounds" data-object-id="${esc(round.id)}" role="button" tabindex="0"`} title="${round.source_rounds ? '按赛制合并显示的原始赛段' : '编辑赛段资料'}">${esc(cleanTitle)}</div>
+              <div class="wiki-round-pill" ${round.source_rounds ? '' : `data-object-table="rounds" data-object-id="${esc(round.id)}" role="button" tabindex="0"`} title="${round.source_rounds ? '按赛制合并显示的原始赛段' : esc(round.source_round_name || '编辑赛段资料')}">${esc(cleanTitle)}</div>
               <div class="wiki-date-label">${dateText}${venueText}</div>
               ${horizontalFinal && finalSummary.series_score ? `<div class="wiki-finals-score">本届总比分 <strong>${esc(finalSummary.series_score)}</strong></div>` : ''}
             </div>
@@ -2784,6 +2827,19 @@ window.showPlayer = function(playerNameOrId) {
         const unplaced = M.roundsForView(allData[editionId]).unclassifiedRounds.some(r => r.matches.some(m => m.id === matchId));
         document.getElementById(M.isPrelimRound(round) ? 'btnScopePrelim' : unplaced ? 'btnScopeUnclassified' : 'btnScopeMain')?.click();
         const data = allData[editionId];
+        if (M.isPrelimRound(round)) {
+          const ps = resolvePrelimTreeState(data);
+          const targetGroup = ps.groups.find(g => g.rounds.some(r => r.matches?.some(m => m.id === matchId)));
+          if (targetGroup?.tree && (prelimViewMode !== 'tree' || activePrelimGroupKey !== targetGroup.key)) {
+            activePrelimGroupKey = targetGroup.key;
+            prelimViewMode = 'tree';
+            renderCurrentBracket(data);
+            const sum = document.getElementById('boardRoundSummary');
+            if (sum) sum.textContent = scopeSummary(data);
+            frameCurrentView();
+            requestDraw();
+          }
+        }
         if (M.isTeamCompetition(data) && window.GoViewerTeam.revealMatch(data, matchId)) {
           renderCurrentBracket(data); requestDraw();
         }
@@ -2808,7 +2864,9 @@ window.showPlayer = function(playerNameOrId) {
         showMatchDetails, editionOfMatch};
 
       function mForDetails(id) {
-        return M.renderedMatches(allData[currentEditionId]).find(m => m.id === id);
+        const data = allData[currentEditionId];
+        return M.renderedMatches(data).find(m => m.id === id)
+          || (data?.rounds || []).flatMap(r => r.matches || []).find(m => m.id === id);
       }
       function addDetailsButton(table, m, options = {}) {
         if (!m) return;
@@ -2942,11 +3000,12 @@ window.showPlayer = function(playerNameOrId) {
             if (!button || button.dataset.scope === currentScope) return;
             currentScope = button.dataset.scope;
             const data = allData[currentEditionId];
-            const meta = indexList.find(x => x.id === currentEditionId);
+            const meta = indexList.find(x => x.id === currentEditionId) || (boot?.indexItemFromEdition ? boot.indexItemFromEdition(data) : null);
             updateScopeButtons(data);
             if (meta) renderBanner(meta, data);
             renderCurrentBracket(data);
             frameCurrentView();
+            if (canvas.dataset.prelimTree === 'true') requestDraw();
             syncUrl({push: true});
             window.dispatchEvent(new CustomEvent('go:scope-changed', {detail: {scope: currentScope}}));
           });
@@ -3040,8 +3099,14 @@ window.showPlayer = function(playerNameOrId) {
           document.getElementById('btnNavToggle')?.setAttribute('aria-expanded', 'false');
         });
         document.getElementById('crumbHome')?.addEventListener('click', () => {
+          catalog?.openHome?.();
           const list = document.getElementById('editionList');
           if (list) list.scrollTop = 0;
+        });
+        document.getElementById('currentTournamentLabel')?.addEventListener('click', () => {
+          if (window.GoViewerEditor?.enabled?.()) return;
+          const tid = allData[currentEditionId]?.tournament?.id || currentTournamentId;
+          if (tid) catalog?.openTournament?.(tid, currentEditionId);
         });
 
         // Wheel Event Isolation: prevents coupled scrolling between list and viewport
@@ -3075,22 +3140,14 @@ window.showPlayer = function(playerNameOrId) {
         }});
         document.getElementById('btnPrevEd').onclick = () => navigateEdition(-1);
         document.getElementById('btnNextEd').onclick = () => navigateEdition(1);
-        function navigateEdition(step) {
-          const list = filteredEditions(), i = list.findIndex(e => e.id === currentEditionId);
-          const stepDir = currentCatalogSort === 'asc' ? 1 : -1;
-          const target = list[i + step * stepDir];
-          if (target) {
-            loadEdition(target.id, {push: true, clearMatch: true});
-            document.querySelector('.edition-item.active')?.scrollIntoView({block: 'center', inline: 'center'});
+        async function navigateEdition(step) {
+          const list = orderedTournamentEditionsAsc();
+          const i = list.findIndex(e => e.id === currentEditionId);
+          const target = list[i + step];
+          if (target && await loadEdition(target.id, {push: true, clearMatch: true})) {
+            document.querySelector(`#editionList .edition-item[data-id="${CSS.escape(target.id)}"]`)?.scrollIntoView({block: 'center', inline: 'center'});
           }
         }
-        // Sidebar Tabs
-        document.querySelectorAll(".aside-tab").forEach(tab => {
-          tab.onclick = () => {
-            catalog?.closePicker();
-            changeCatalogFilters({status: tab.dataset.tab});
-          };
-        });
 
         // Search Input: totals, keyboard selection, direct match location and table hand-off.
         const searchInput = document.getElementById("searchInput");
@@ -3129,10 +3186,11 @@ window.showPlayer = function(playerNameOrId) {
           if (matchedPlayers.length) {
             html += '<div class="search-group">棋手搜索</div>';
             matchedPlayers.slice(0, 8).forEach(p => {
+              const titles = (rankingList.find(r => r.id === p.id)?.titles) || 0;
               html += item(`<div><span class="search-name">${getFlagSvg(p.nationality)}${esc(p.name_zh)}</span>
                 <span class="search-side">${esc(p.default_kiin || '—')}</span>
                 ${p.name_native ? `<div class="profile-name-note">${esc(p.name_native)}</div>` : ''}</div>
-                <span class="search-tag">${indexList.filter(e => M.isWorld(e) && e.champion_id === p.id).length} 次冠军</span>`,
+                <span class="search-tag">${titles} 次冠军</span>`,
                 () => window.showPlayer(p.id));
             });
           }
@@ -3140,9 +3198,9 @@ window.showPlayer = function(playerNameOrId) {
             html += '<div class="search-group">赛事届次</div>';
             matchedEditions.slice(0, 6).forEach(ed => {
               html += item(`<div><span class="search-name">${esc(ed.tournament_short)} ${M.editionLabel(ed)}</span>
-                <span class="search-side">${ed.year}年</span></div>
-                <span class="search-tag">${esc(ed.champion)} (${esc(ed.finals_score)})</span>`,
-                () => window.GoViewerEditor?.enabled() ? window.GoViewerEditor.open('editions', ed.id) : loadEdition(ed.id, {push: true, clearMatch: true}));
+                <span class="search-side">${ed.year ? ed.year + '年' : ''}</span></div>
+                <span class="search-tag">${esc(ed.champion || '—')}${ed.finals_score ? ` (${esc(ed.finals_score)})` : ''}</span>`,
+                () => window.GoViewerEditor?.enabled() ? window.GoViewerEditor.open('editions', ed.id) : loadEdition(ed.id, {push: true, clearMatch: true, openTournament: true}));
             });
           }
           if (matchedMatches.length) {
@@ -3196,12 +3254,20 @@ window.showPlayer = function(playerNameOrId) {
           }
           const localTotal = `${matchedMatches.length}${matchedMatches.length >= 200 ? '+' : ''}`;
           renderSearchMenu(raw, matchedPlayers, matchedEditions, matchedMatches, localTotal);
-          if (lazyMode && dataClient && dataClient.search) {
+          if (lazyMode && dataClient && (dataClient.search || dataClient.catalogSearch)) {
             headerSearchTimer = setTimeout(async () => {
               try {
-                const payload = await dataClient.search({q: raw.trim(), page: 1, page_size: 8, sort: 'date_desc'});
+                const term = raw.trim();
+                const [catRes, matchRes] = await Promise.allSettled([
+                  dataClient.catalogSearch ? dataClient.catalogSearch(term, 6) : Promise.resolve(null),
+                  dataClient.search ? dataClient.search({q: term, page: 1, page_size: 8, sort: 'date_desc'}) : Promise.resolve(null),
+                ]);
                 if (token !== headerSearchToken || searchDropdown.style.display === 'none' || normalizeQuery(searchInput.value) !== query) return;
-                const serverMatches = (payload.items || []).map(item => {
+                const serverEditions = (catRes.status === 'fulfilled' && (catRes.value?.editions || catRes.value?.items)) || [];
+                const seenEd = new Set(serverEditions.map(e => e.id));
+                const mergedEditions = [...serverEditions, ...matchedEditions.filter(e => !seenEd.has(e.id))];
+                const payload = matchRes.status === 'fulfilled' ? matchRes.value : null;
+                const serverMatches = ((payload && payload.items) || []).map(item => {
                   const edMeta = indexList.find(e => e.id === item.edition_id) || {
                     id: item.edition_id, tournament_id: item.tournament_id,
                     tournament_short: item.tournament_short || '', tournament_name: item.tournament_name || '',
@@ -3213,12 +3279,12 @@ window.showPlayer = function(playerNameOrId) {
                     match: item,
                   };
                 });
-                const total = payload.page && typeof payload.page.total === 'number'
+                const total = payload && payload.page && typeof payload.page.total === 'number'
                   ? payload.page.total.toLocaleString('zh-CN')
                   : String(serverMatches.length);
-                renderSearchMenu(raw, matchedPlayers, matchedEditions, serverMatches, total);
+                renderSearchMenu(raw, matchedPlayers, mergedEditions, serverMatches.length ? serverMatches : matchedMatches, total);
               } catch (_) { /* 保持本地已呈现结果 */ }
-            }, 60);
+            }, 80);
           }
         }
         searchInput.addEventListener('input', event => runSearch(event.target.value));
@@ -3519,8 +3585,16 @@ window.showPlayer = function(playerNameOrId) {
         const matchDialog = document.getElementById('matchDialog');
         const dialogWasOpen = !!(matchDialog.open && openMatchContext);
         const dialogScroll = dialogWasOpen ? (document.getElementById('matchDialogBody')?.scrollTop || 0) : 0;
-        indexList.splice(0, indexList.length, ...snapshot.index);
-        rankingList.splice(0, rankingList.length, ...snapshot.ranking);
+        if (Array.isArray(snapshot.index)) {
+          indexList.splice(0, indexList.length, ...snapshot.index);
+          if (boot && boot.indexById) {
+            boot.indexById.clear();
+            for (const item of indexList) if (item && item.id) boot.indexById.set(item.id, item);
+          }
+        }
+        if (Array.isArray(snapshot.ranking)) {
+          rankingList.splice(0, rankingList.length, ...snapshot.ranking);
+        }
         if (!snapshot.partial) {
           for (const key of Object.keys(allData)) delete allData[key];
           dataClient?.invalidateAllEditions?.();
@@ -3558,10 +3632,11 @@ window.showPlayer = function(playerNameOrId) {
         }
         if (!dialogWasOpen) matchDialog.close();
         document.getElementById('searchDropdown').style.display = 'none';
-        renderEditionList();
+        dataClient?.invalidateCatalog?.();
         // A table view keeps its filters; the bracket still re-renders underneath.
         window.__goViewerRefreshing=true;
-        try { loadEdition(currentEditionId, {push: false}); } finally { window.__goViewerRefreshing=false; }
+        try { loadEdition(currentEditionId, {push: false, skipCatalogSwitch: true}); } finally { window.__goViewerRefreshing=false; }
+        catalog?.invalidate?.();
         document.getElementById('searchInput').value=searchValue;
         zoomLevel=viewState.zoom;canvas.style.zoom=String(zoomLevel);document.getElementById('btnResetZoom').textContent=Math.round(zoomLevel*100)+'%';
         viewport.scrollLeft=viewState.left;viewport.scrollTop=viewState.top;document.getElementById('editionList').scrollTop=viewState.list;requestDraw();
