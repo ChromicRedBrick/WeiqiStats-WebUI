@@ -21,12 +21,14 @@
       const PRESENTATION_KEY = 'go_bracket_presentation_v1';
       const ORIENTATION_KEY = 'go_bracket_orientation_v1';
       const CHAMPION_PATH_KEY = 'go_bracket_champion_path_v1';
+      const HOVER_TRACK_KEY = 'go_bracket_hover_track_v1';
       const DOUBLE_LOSER_LINES_KEY = 'go_double_loser_lines_v1';
       const THEME_KEY = 'go_viewer_theme_v1';
       let legacyMode = '';
       let storedPresentation = 'wiki';
       let storedOrientation = 'horizontal';
       let championPathEnabled = true;
+      let hoverTrackEnabled = false;
       let showLoserLines = true;
       let storedTheme = '';
       try {
@@ -34,6 +36,7 @@
         storedPresentation = localStorage.getItem(PRESENTATION_KEY) || (legacyMode === 'modern' ? 'modern' : 'wiki');
         storedOrientation = localStorage.getItem(ORIENTATION_KEY) || 'horizontal';
         if (localStorage.getItem(CHAMPION_PATH_KEY) === 'off') championPathEnabled = false;
+        if (localStorage.getItem(HOVER_TRACK_KEY) === 'on') hoverTrackEnabled = true;
         if (localStorage.getItem(DOUBLE_LOSER_LINES_KEY) === 'hover') showLoserLines = false;
         storedTheme = localStorage.getItem(THEME_KEY) || '';
       } catch (_) {}
@@ -433,6 +436,7 @@
 
         const orientGroup = document.getElementById('orientationToggleGroup');
         const champBtn = document.getElementById('btnChampionPath');
+        const hoverTrackBtn = document.getElementById('btnHoverTrack');
         const btnHoriz = document.getElementById('btnOrientHorizontal');
         const btnVert = document.getElementById('btnOrientVertical');
         if (btnHoriz && btnVert) {
@@ -441,7 +445,7 @@
           btnHoriz.setAttribute('aria-pressed', String(currentOrientation === 'horizontal'));
           btnVert.setAttribute('aria-pressed', String(currentOrientation === 'vertical'));
         }
-        if (orientGroup || champBtn) {
+        if (orientGroup || champBtn || hoverTrackBtn) {
           const isTeam = Boolean(data && M.isTeamCompetition(data, meta));
           let isPureLeague = false;
           if (data && !isTeam && window.GoViewerLeague) {
@@ -450,9 +454,11 @@
             isPureLeague = leagues.groups.length > 0 && leagues.rest.length === 0;
           }
           const prelimTreeActive = Boolean(data && currentScope === 'prelim' && prelimViewMode === 'tree' && resolvePrelimTreeState(data).hasTrees);
-          const hideTreeTools = !data || (currentScope !== 'main' && !prelimTreeActive) || currentViewMode === 'draw' || isTeam || isPureLeague;
+          const hasTrackingBracket = Boolean(data) && (currentScope === 'main' || prelimTreeActive) && !isTeam && !isPureLeague;
+          const hideTreeTools = !hasTrackingBracket || currentViewMode === 'draw';
           if (orientGroup) orientGroup.hidden = hideTreeTools;
           if (champBtn) champBtn.hidden = hideTreeTools || prelimTreeActive;
+          if (hoverTrackBtn) hoverTrackBtn.hidden = !hasTrackingBracket;
         }
       }
 
@@ -466,6 +472,19 @@
         }
         if (persist) {
           try { localStorage.setItem(CHAMPION_PATH_KEY, championPathEnabled ? 'on' : 'off'); } catch (_) {}
+        }
+      }
+
+      function applyHoverTrack(enabled, {persist = true} = {}) {
+        hoverTrackEnabled = Boolean(enabled);
+        const btn = document.getElementById('btnHoverTrack');
+        if (btn) {
+          btn.classList.toggle('is-active', hoverTrackEnabled);
+          btn.setAttribute('aria-pressed', String(hoverTrackEnabled));
+        }
+        if (!hoverTrackEnabled && activeHighlightPlayer) clearHighlight();
+        if (persist) {
+          try { localStorage.setItem(HOVER_TRACK_KEY, hoverTrackEnabled ? 'on' : 'off'); } catch (_) {}
         }
       }
 
@@ -3127,6 +3146,7 @@
 
       // Highlight Player's Path
       function highlightPlayer(playerName) {
+        if (!hoverTrackEnabled) return;
         if (!playerName || playerName === "轮空 / 待定" || playerName.includes("轮空")) return;
         activeHighlightPlayer = playerName;
         const clearBtn = document.getElementById('btnHighlightClear');
@@ -3511,7 +3531,7 @@ window.showPlayer = function(playerNameOrId) {
           editionInfo.setAttribute('aria-expanded', String(open));
         };
         document.getElementById('workspaceMore').addEventListener('click', event => {
-          if (event.target.closest('[data-mode], [data-orient], #btnChampionPath, #btnExportBracket, #btnPrevEd, #btnNextEd, #toggleEditionInfo')) {
+          if (event.target.closest('[data-mode], [data-orient], #btnChampionPath, #btnHoverTrack, #btnExportBracket, #btnPrevEd, #btnNextEd, #toggleEditionInfo')) {
             more.setAttribute('aria-expanded', 'false');
             if (mobileCatalogMedia.matches && document.activeElement !== more) more.focus();
           }
@@ -3520,6 +3540,11 @@ window.showPlayer = function(playerNameOrId) {
         if (btnChampionPath) {
           applyChampionPath(championPathEnabled, {persist: false});
           btnChampionPath.onclick = () => applyChampionPath(!championPathEnabled, {persist: true});
+        }
+        const btnHoverTrack = document.getElementById('btnHoverTrack');
+        if (btnHoverTrack) {
+          applyHoverTrack(hoverTrackEnabled, {persist: false});
+          btnHoverTrack.onclick = () => applyHoverTrack(!hoverTrackEnabled, {persist: true});
         }
         const btnToggleLoserLines = document.getElementById('btnToggleLoserLines');
         if (btnToggleLoserLines) {
