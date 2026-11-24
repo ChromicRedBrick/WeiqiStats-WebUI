@@ -123,6 +123,9 @@ body {
   --shadow: 0 8px 24px rgba(32, 33, 36, 0.1);
   --radius: var(--radius-md);
   --award: #8a6a1f;
+  --award-soft: #fbf5e6;
+  --award-border: #d8be7d;
+  --on-award: #ffffff;
   --on-accent: #ffffff;
   --danger-fill: #b3372c;
   --danger-text: #ffffff;
@@ -176,6 +179,10 @@ body {
   --stone-black-stroke: #000000;
   --stone-white-fill: #f8f8f4;
   --stone-white-stroke: #747474;
+  --stone-icon-border: #8a8e9a;
+  --card-top-bg: #f4f3ef;
+  --connector: #a8a59c;
+  --connector-strong: #4a4d55;
 
   color-scheme: light;
 }
@@ -205,6 +212,9 @@ body[data-theme="dark"] {
   --shadow: 0 16px 50px rgba(0, 0, 0, 0.35);
   --radius: var(--radius-lg);
   --award: #dbbd7c;
+  --award-soft: rgba(219, 189, 124, 0.14);
+  --award-border: rgba(219, 189, 124, 0.42);
+  --on-award: #1a140c;
   --on-accent: #14151a;
   --danger-fill: #ef9d9d;
   --danger-text: #2a1414;
@@ -241,6 +251,10 @@ body[data-theme="dark"] {
   --stone-black-stroke: #000000;
   --stone-white-fill: #f3f1e8;
   --stone-white-stroke: #8c8678;
+  --stone-icon-border: #686f80;
+  --card-top-bg: #272a33;
+  --connector: #5b6272;
+  --connector-strong: #c9cedc;
 
   color-scheme: dark;
 }

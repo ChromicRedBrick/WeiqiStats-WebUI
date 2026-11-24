@@ -313,7 +313,8 @@
     const laneOf = (node, i) => typeof lanes[i] === 'string' ? lanes[i] : lanes[i][node.id] || 'final';
     const winnerStages = stages.map((nodes, i) => nodes.filter(n => laneOf(n, i) === 'winner'));
     const laneSize = Math.max(0, ...winnerStages.map(nodes => nodes.reduce((s, n) => s + extent(n), 0) + Math.max(0, nodes.length - 1) * gap));
-    const loserStart = laneSize + gap * 2;
+    const laneGap = Math.max(gap * 2.4, axis === 'horizontal' ? 56 : 60);
+    const loserStart = laneSize + laneGap;
     const known = new Map(), placements = [];
     stages.forEach((nodes, i) => {
       const stagePlaced = [];

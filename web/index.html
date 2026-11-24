@@ -77,7 +77,14 @@
     <!-- Left Sidebar: On-demand Tournament & Edition Directory -->
     <div class="catalog-backdrop" id="catalogBackdrop" hidden></div>
     <aside class="app-sidebar" id="editionCatalog" aria-label="赛事目录">
-      <div class="sidebar-heading">赛事目录<span id="sidebarCount"></span><button class="btn catalog-close" id="closeEditionCatalog" type="button">关闭</button></div>
+      <div class="sidebar-heading">
+        <span class="sidebar-heading-title">赛事目录</span>
+        <span id="sidebarCount" class="sidebar-heading-count"></span>
+        <button class="sidebar-collapse-btn" id="btnCollapseSidebar" type="button" aria-controls="editionCatalog" aria-expanded="true" title="收起赛事目录 (Ctrl+B)" aria-label="收起赛事目录">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 4.5v15M15.5 9.5 13 12l2.5 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="btn catalog-close" id="closeEditionCatalog" type="button">关闭</button>
+      </div>
       <div class="catalog-bar" id="catalogControls">
         <input id="catalogSearchInput" class="catalog-search-input" type="search" aria-label="搜索赛事、年份或届次" placeholder="搜赛事、年份或届次，如 三星杯 2024" autocomplete="off">
         <button id="catalogFilterToggle" class="catalog-filter-btn" type="button" aria-expanded="false" aria-controls="catalogFilterPanel"><span>筛选</span><span id="catalogFilterBadge" class="catalog-filter-badge" hidden>0</span></button>
@@ -124,6 +131,10 @@
     <!-- Main View: Tournament Banner & Bracket -->
     <main id="mainView" class="app-main" data-view-mode="wiki">
       <div class="workspace-toolbar">
+        <button class="btn sidebar-expand-btn" id="btnExpandSidebar" type="button" aria-controls="editionCatalog" aria-expanded="false" title="展开赛事目录 (Ctrl+B)" aria-label="展开赛事目录">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 4.5v15M13 9.5 15.5 12 13 14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>赛事目录</span>
+        </button>
         <nav class="breadcrumbs" aria-label="当前位置">
           <button class="crumb" id="crumbHome" type="button">赛事资料</button>
           <span class="crumb-sep" aria-hidden="true">/</span>
@@ -140,6 +151,7 @@
           </div>
           <button class="btn workspace-more-toggle" id="workspaceMoreToggle" type="button" aria-controls="workspaceMore" aria-expanded="false">更多</button>
           <div class="workspace-more" id="workspaceMore">
+          <span class="toolbar-divider" aria-hidden="true"></span>
           <div class="view-toggle-group" data-segmented aria-label="对阵呈现">
             <button class="view-toggle-btn active" id="btnViewWiki" data-mode="wiki" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 10h16M4 15h16M4 20h16M8 5v15"/></svg>紧凑表格式</button>
             <button class="view-toggle-btn" id="btnViewModern" data-mode="modern" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>卡片式</button>
@@ -151,7 +163,9 @@
             <button class="view-toggle-btn" id="btnOrientVertical" data-orient="vertical" type="button" aria-pressed="false" title="轮次自上而下排列"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v4H6zM8 10h8v4H8zM10 16h4v4h-4z"/></svg>竖版</button>
             <span class="segment-indicator" aria-hidden="true"></span>
           </div>
-          <button class="btn view-tool-btn" id="btnExportBracket" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>导出对阵图</button>
+          <button class="btn view-tool-btn is-active" id="btnChampionPath" type="button" aria-pressed="true" title="突出显示本届冠军的晋级连线">冠军路线</button>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <button class="btn view-tool-btn btn-export-primary" id="btnExportBracket" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>导出对阵图</button>
           <div class="edition-navigation">
             <button class="btn" id="btnPrevEd" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7M7 12h13"/></svg>上一届</button>
             <button class="btn" id="btnNextEd" type="button">下一届<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 5 7 7-7 7M17 12H4"/></svg></button>
@@ -189,14 +203,21 @@
         </div>
         <nav class="bracket-rounds" id="bracketRoundNav" aria-label="跳转到轮次" hidden></nav>
         <div class="board-controls">
+          <div class="board-legend" aria-label="连线图例"><i class="legend-line"></i>胜者晋级<i class="legend-line loser"></i>负者后续对局</div>
+          <button class="btn btn-small double-loser-toggle" id="btnToggleLoserLines" type="button" aria-pressed="true" hidden>跌落虚线：显示</button>
           <button class="btn edition-roster-btn" id="btnEditionRoster" type="button">本届参赛名单</button>
         </div>
       </div>
       <div id="editModeStatus" class="edit-mode-status" role="status" aria-live="polite"></div>
       <div id="editorSyncStatus" class="editor-sync" role="status" aria-live="polite"></div>
       <div class="bracket-viewport" id="viewport">
+        <div class="highlight-status-anchor" aria-live="polite">
+          <div class="highlight-status-bar" id="highlightStatusBar" role="status" hidden>
+            <span class="highlight-status-label" id="highlightStatusText"></span>
+            <button class="btn btn-small highlight-status-clear" id="btnHighlightStatusClear" type="button">清除高亮 ×</button>
+          </div>
+        </div>
         <div class="bracket-canvas" id="canvas"><svg class="svg-connectors" id="svgConnectors"></svg></div>
-        <div class="board-legend board-legend--floating" aria-label="连线图例"><i class="legend-line"></i>胜者晋级<i class="legend-line loser"></i>负者后续对局</div>
         <div class="bracket-toolbar" aria-label="对阵图视角">
           <button class="tool-btn" id="btnZoomOut" title="缩小" aria-label="缩小" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6m2 5 5 5"/></svg></button>
           <button class="tool-btn tool-btn--reset" id="btnResetZoom" title="恢复100%并回到左上角" type="button">100%</button>
@@ -485,6 +506,26 @@
         </label>
         <p class="export-setting-hint" id="exportScopeHint">全部循环圈分组自上而下排列。</p>
       </div>
+      <div id="exportOrientationField">
+        <label class="export-setting" for="exportOrientation">
+          <span>导出排布方向</span>
+          <select id="exportOrientation" aria-describedby="exportOrientationHint">
+            <option value="current">跟随当前视图</option>
+            <option value="horizontal">横版（自左向右）</option>
+            <option value="vertical">竖版（自上而下）</option>
+          </select>
+        </label>
+        <p class="export-setting-hint" id="exportOrientationHint">导出时按当前页面排布方向生成。</p>
+      </div>
+      <label class="export-setting" for="exportScale">
+        <span>PNG 清晰度倍率</span>
+        <select id="exportScale" aria-describedby="exportScaleHint">
+          <option value="1">1× 标准</option>
+          <option value="2" selected>2× 高清</option>
+          <option value="3">3× 超清（打印适用）</option>
+        </select>
+      </label>
+      <p class="export-setting-hint" id="exportScaleHint">仅对 PNG 导出生效；超大图会自动按浏览器上限收敛。</p>
       <label class="export-setting" for="exportHeaderStyle">
         <span>标题样式</span>
         <select id="exportHeaderStyle" aria-describedby="exportHeaderStyleHint">
@@ -508,6 +549,11 @@
         <span>显示对局编号</span>
       </label>
       <p class="export-setting-hint" id="exportShowMatchNumberHint">导出结果不显示对局编号。</p>
+      <label class="export-check" for="exportShowSeriesDates">
+        <input type="checkbox" id="exportShowSeriesDates" aria-describedby="exportShowSeriesDatesHint">
+        <span>显示番棋每局日期</span>
+      </label>
+      <p class="export-setting-hint" id="exportShowSeriesDatesHint">导出结果不显示番棋逐局日期。</p>
       <p id="exportStatus" role="status" aria-live="polite"></p>
       <div class="dialog-actions">
         <button class="btn btn-gold" id="btnExportPng" type="button">导出 PNG 图片</button>
@@ -524,6 +570,7 @@
   <script src="viewer-catalog.js"></script>
   <script src="viewer-team.js"></script>
   <script src="viewer-league.js"></script>
+  <script src="viewer-group-double.js"></script>
   <script src="viewer-theme.js"></script>
   <script src="viewer-router.js"></script>
   <script src="viewer.js"></script>

@@ -10,20 +10,65 @@
   const showRoundNumberHint = document.getElementById('exportShowRoundNumberHint');
   const showMatchNumber = document.getElementById('exportShowMatchNumber');
   const showMatchNumberHint = document.getElementById('exportShowMatchNumberHint');
+  const showSeriesDates = document.getElementById('exportShowSeriesDates');
+  const showSeriesDatesHint = document.getElementById('exportShowSeriesDatesHint');
+  const orientationField = document.getElementById('exportOrientationField');
+  const exportOrientation = document.getElementById('exportOrientation');
+  const exportOrientationHint = document.getElementById('exportOrientationHint');
+  const exportScale = document.getElementById('exportScale');
+  const exportScaleHint = document.getElementById('exportScaleHint');
   const scopeField = document.getElementById('exportScopeField');
   const scopeSelect = document.getElementById('exportScope');
   const HEADER_STYLE_KEY = 'go_bracket_export_header_style_v1';
   const SCOPE_KEY = 'go_bracket_export_scope_v1';
+  const ORIENTATION_KEY = 'go_bracket_export_orientation_v1';
+  const SCALE_KEY = 'go_bracket_export_scale_v1';
   const OMIT_NOTE_KEY = 'go_bracket_export_omit_note_v1';
   const SHOW_ROUND_NUMBER_KEY = 'go_bracket_export_show_round_number_v1';
   const SHOW_MATCH_NUMBER_KEY = 'go_bracket_export_show_match_number_v1';
+  const SHOW_SERIES_DATES_KEY = 'go_bracket_export_show_series_dates_v1';
   let busy = false;
+  function updateOrientationHint() {
+    if (!exportOrientation || !exportOrientationHint) return;
+    exportOrientationHint.textContent = exportOrientation.value === 'horizontal'
+      ? '导出时临时切为横版（自左向右），不影响当前页面视图。'
+      : exportOrientation.value === 'vertical'
+      ? '导出时临时切为竖版（自上而下），不影响当前页面视图。'
+      : '导出时按当前页面排布方向生成。';
+  }
+  function updateScaleHint() {
+    if (!exportScale || !exportScaleHint) return;
+    const val = Number(exportScale.value) || 2;
+    exportScaleHint.textContent = val >= 3
+      ? '3× 超清适合打印大图；超过浏览器限制时自动等比收敛。'
+      : val === 1
+      ? '1× 标准尺寸，文件体积更小、生成更快。'
+      : '2× 高清适合日常浏览与分享。';
+  }
   try {
     const saved = localStorage.getItem(HEADER_STYLE_KEY);
     if (saved === 'compact' || saved === 'web') headerStyle.value = saved;
     if (omitNote) omitNote.checked = localStorage.getItem(OMIT_NOTE_KEY) === '1';
     if (scopeSelect && localStorage.getItem(SCOPE_KEY) === 'knockout') scopeSelect.value = 'knockout';
+    const savedOrient = localStorage.getItem(ORIENTATION_KEY);
+    if (exportOrientation && (savedOrient === 'current' || savedOrient === 'horizontal' || savedOrient === 'vertical')) {
+      exportOrientation.value = savedOrient;
+    }
+    const savedScale = localStorage.getItem(SCALE_KEY);
+    if (exportScale && (savedScale === '1' || savedScale === '2' || savedScale === '3')) {
+      exportScale.value = savedScale;
+    }
   } catch (_) { /* Export also works when local storage is unavailable. */ }
+  updateOrientationHint();
+  updateScaleHint();
+  exportOrientation?.addEventListener('change', () => {
+    updateOrientationHint();
+    try { localStorage.setItem(ORIENTATION_KEY, exportOrientation.value); } catch (_) {}
+  });
+  exportScale?.addEventListener('change', () => {
+    updateScaleHint();
+    try { localStorage.setItem(SCALE_KEY, exportScale.value); } catch (_) {}
+  });
   function updateHeaderStyle() {
     const isWeb = headerStyle.value === 'web';
     document.getElementById('exportHeaderStyleHint').textContent = isWeb
@@ -41,7 +86,38 @@
   omitNote?.addEventListener('change', () => {
     try { localStorage.setItem(OMIT_NOTE_KEY, omitNote.checked ? '1' : '0'); } catch (_) {}
   });
+  function exportUiKinds() {
+    const isGroupDouble = Boolean(document.querySelector('#canvas .group-double-section'));
+    const isLeague = Boolean(document.querySelector('#canvas .league-results'));
+    const hasKnockout = Boolean(document.querySelector('#canvas .stage-knockout, #canvas .league-knockout'));
+    return {isGroupDouble, isLeague, hasKnockout};
+  }
+  function syncScopeOptions(kinds = exportUiKinds()) {
+    if (!scopeField || !scopeSelect) return;
+    scopeField.hidden = !((kinds.isGroupDouble || kinds.isLeague) && kinds.hasKnockout);
+    const optAll = scopeSelect.querySelector('option[value="all"]');
+    const optKo = scopeSelect.querySelector('option[value="knockout"]');
+    const scopeHint = document.getElementById('exportScopeHint');
+    if (kinds.isGroupDouble) {
+      if (optAll) optAll.textContent = '完整赛程（小组双败 + 淘汰赛）';
+      if (optKo) optKo.textContent = '仅单败淘汰赛段';
+      if (scopeHint) {
+        scopeHint.textContent = scopeSelect.value === 'knockout'
+          ? '仅导出单败淘汰赛段，并保留首轮小组来源角标。'
+          : '上方按小组双败网格排列，下方接单败淘汰树。';
+      }
+    } else {
+      if (optAll) optAll.textContent = '循环圈分组与淘汰赛';
+      if (optKo) optKo.textContent = '仅淘汰赛';
+      if (scopeHint) {
+        scopeHint.textContent = scopeSelect.value === 'knockout'
+          ? '仅导出淘汰赛及名次赛部分。'
+          : '全部循环圈分组自上而下排列。';
+      }
+    }
+  }
   scopeSelect?.addEventListener('change', () => {
+    syncScopeOptions();
     try { localStorage.setItem(SCOPE_KEY, scopeSelect.value); } catch (_) {}
   });
   updateHeaderStyle();
@@ -59,6 +135,7 @@
   }
   bindToggle(showRoundNumber, showRoundNumberHint, SHOW_ROUND_NUMBER_KEY, '导出结果保留赛段编号。', '导出结果不显示赛段编号。');
   bindToggle(showMatchNumber, showMatchNumberHint, SHOW_MATCH_NUMBER_KEY, '导出结果保留对局编号。', '导出结果不显示对局编号。');
+  bindToggle(showSeriesDates, showSeriesDatesHint, SHOW_SERIES_DATES_KEY, '导出结果在番棋符号下方显示每局日期。', '导出结果不显示番棋逐局日期。');
   const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   function copyStyled(source, copy) {
     const style = getComputedStyle(source);
@@ -75,13 +152,20 @@
       if (!embedded) throw new Error('旗帜导出资料缺失，请确认 data/export_flags.js 已加载。');
       copy.setAttribute('src', embedded); copy.removeAttribute('srcset');
     }
-    if (source.matches('.wiki-details-caption, .series-details, .series-actions, .draw-unit-actions, .team-controls, .team-nav, .team-results [data-team-action], .league-controls, .edit-only')) copy.style.display = 'none';
+    if (source.matches('.wiki-details-caption, .series-details, .series-actions, .match-card .match-details-btn, .draw-unit-actions, .team-controls, .team-nav, .team-results [data-team-action], .league-controls, .edit-only, .group-double-toggle')) copy.style.display = 'none';
     if (source.matches('.result-badge')) copy.textContent = source.textContent.replace(/ · 详情$/, '');
     // “出线”等文字徽标按内容自适应：导出环境字体度量不同，固定宽高会挤到文字换行溢出框外。
     else if (source.matches('.league-qualified')) Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none'});
     else [...source.children].forEach((child, i) => copyStyled(child, copy.children[i]));
     // 双败赛程中的日期在静态图里不带“详情”；让日期宽度随导出字体自适应。
     if (source.matches('.league-double-detail')) Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
+    if (source.matches('.finals-champion-name, .series-game-winner-name')) {
+      Object.assign(copy.style, {width: 'auto', flex: '1 1 auto', minWidth: '0', maxWidth: 'none'});
+    } else if (source.matches('.finals-champion-label, .origin-group-badge, .drop-ref-badge, .gsl-group-badge, .gsl-adv-tag, .double-lane-label, .stage-bridge-label')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
+    } else if (source.matches('.wiki-pname, .player-name, .player-outcome, .match-date, .match-code, .finals-badge-title, .finals-score, .series-game-result, .series-game-date, .series-game-num, .wiki-date-label, .gsl-match-label, .gsl-match-res, .gsl-qual-name, .gsl-player-name')) {
+      copy.style.width = 'auto';
+    }
     if (source.tagName === 'TABLE') copy.style.removeProperty('height');
     if (source.matches('.team-table-scroll, .league-table-scroll')) Object.assign(copy.style, {height: 'auto', maxHeight: 'none', maxWidth: 'none', overflow: 'visible'});
   }
@@ -143,36 +227,88 @@
       } catch (error) { restore(); throw error; }
       parent.insertBefore(temp, slot);
     }
-    return restore;
+    return {restore, knockoutOnly};
+  }
+  function applyGroupDoubleExport(canvas) {
+    const liveGroup = canvas.querySelector('.group-double-section');
+    if (!liveGroup) return null;
+    const liveBridge = canvas.querySelector('.stage-bridge');
+    const knockout = canvas.querySelector('.stage-knockout');
+    const knockoutOnly = Boolean(knockout) && scopeSelect?.value === 'knockout';
+    const wasCollapsed = liveGroup.classList.contains('is-collapsed');
+    const parent = liveGroup.parentNode;
+    const anchor = liveBridge ? liveBridge.nextSibling : liveGroup.nextSibling;
+    const toggleBtn = liveGroup.querySelector('.group-double-toggle');
+    const prevText = toggleBtn?.textContent;
+    const prevExpanded = toggleBtn?.getAttribute('aria-expanded');
+    if (knockoutOnly) {
+      liveBridge?.remove();
+      liveGroup.remove();
+    } else if (wasCollapsed) {
+      liveGroup.classList.remove('is-collapsed');
+      if (toggleBtn) {
+        toggleBtn.textContent = '收起小组赛';
+        toggleBtn.setAttribute('aria-expanded', 'true');
+      }
+    }
+    const restore = () => {
+      if (knockoutOnly) {
+        parent.insertBefore(liveGroup, anchor);
+        if (liveBridge) parent.insertBefore(liveBridge, anchor);
+      } else if (wasCollapsed) {
+        liveGroup.classList.add('is-collapsed');
+        if (toggleBtn) {
+          toggleBtn.textContent = prevText;
+          toggleBtn.setAttribute('aria-expanded', prevExpanded);
+        }
+      }
+    };
+    return {restore, knockoutOnly};
   }
   async function snapshot() {
-    const context = window.getBracketExportContext(), canvas = document.getElementById('canvas');
+    let context = window.getBracketExportContext();
+    const canvas = document.getElementById('canvas');
     if (!context || (!canvas.querySelector('.round-col') && !canvas.querySelector('.draw-board'))) throw new Error('尚未加载对阵图，请稍后重试。');
     await document.fonts.ready;
     const isDraw = context.mode === 'draw';
+    const originalOrient = context.orientation;
     const screenZoom = canvas.style.zoom;
     const viewport = canvas.parentElement;
     const scrollLeft = viewport.scrollLeft, scrollTop = viewport.scrollTop;
     const hideRoundNumber = !showRoundNumber?.checked;
     const hideMatchNumber = !showMatchNumber?.checked;
+    const displaySeriesDates = Boolean(showSeriesDates?.checked);
     document.body.classList.add('export-capture');
     if (hideRoundNumber) document.body.classList.add('export-hide-round-number');
     if (hideMatchNumber) document.body.classList.add('export-hide-match-number');
-    let leagueCleanup = null;
+    if (displaySeriesDates) document.body.classList.add('export-show-series-dates');
+    let leagueExport = null;
+    let groupDoubleExport = null;
+    let switchedOrient = false;
     try {
-      // Measure the draw board at the same scale as its standalone XHTML.
-      if (isDraw) canvas.style.zoom = '1';
-      leagueCleanup = applyLeagueExport(canvas, context);
+      const targetOrient = exportOrientation?.value;
+      const orientGroup = document.getElementById('orientationToggleGroup');
+      if (!isDraw && orientGroup && !orientGroup.hidden
+        && (targetOrient === 'horizontal' || targetOrient === 'vertical')
+        && targetOrient !== originalOrient && window.GoViewerBracketOrientation?.setTemporary) {
+        window.GoViewerBracketOrientation.setTemporary(targetOrient);
+        switchedOrient = true;
+        context = window.getBracketExportContext();
+      }
+      // Measure and style-sample the bracket at 1x scale so CSS zoom never skews borders or text widths.
+      canvas.style.zoom = '1';
+      leagueExport = applyLeagueExport(canvas, context);
+      groupDoubleExport = applyGroupDoubleExport(canvas);
       await frame(); window.prepareBracketExport();
       const canvasWidth = Math.ceil(Math.max(canvas.scrollWidth, canvas.offsetWidth));
       const canvasHeight = Math.ceil(Math.max(canvas.scrollHeight, canvas.offsetHeight));
-      const origin = canvas.getBoundingClientRect(), zoom = isDraw ? 1 : context.zoom || 1;
+      const origin = canvas.getBoundingClientRect(), zoom = 1;
       // 循环圈导出：横向决赛条带的实际宽度决定导出时上表应拓宽到的宽度。
       const liveGames = canvas.querySelector('.finals-container.finals-horizontal .finals-games, .wiki-series-horizontal');
       const leagueWidth = liveGames
         ? Math.ceil(liveGames.scrollWidth + (liveGames.classList.contains('finals-games') ? 32 : 0)) : 0;
       // Layout containers can be as tall as the viewport; crop to painted bracket content.
-      const boxes = [...canvas.querySelectorAll('.round-header, .wiki-round-pill, .wiki-date-label, .match-card, .wiki-match-table, .wiki-r1-block-table, .wiki-third-title, .finals-container, .third-place-container, .series-node, .draw-date-group, .draw-final-plaque, .draw-champion-box, .draw-final-matchup, .draw-third-unit, .team-results, .team-results .team-board-table, .nongshim-bracket, .nongshim-teams-strip, .nongshim-stage, .nongshim-ladder-table, .nongshim-streak-table, .league-results, .league-table')]
+      const boxes = [...canvas.querySelectorAll('.round-header, .wiki-round-pill, .wiki-date-label, .match-card, .wiki-match-table, .wiki-r1-block-table, .wiki-third-title, .finals-container, .finals-champion, .wiki-finals-champion, .third-place-container, .series-node, .draw-date-group, .draw-final-plaque, .draw-champion-box, .draw-final-matchup, .draw-third-unit, .team-results, .team-results .team-board-table, .nongshim-bracket, .nongshim-teams-strip, .nongshim-stage, .nongshim-ladder-table, .nongshim-streak-table, .league-results, .league-table, .group-double-section, .stage-bridge, .gsl-card, .double-lane-divider')]
         .filter(el => getComputedStyle(el).display !== 'none')
         .map(el => el.getBoundingClientRect()).filter(r => r.width && r.height);
       const left = Math.floor(Math.min(...boxes.map(r => (r.left - origin.left) / zoom)));
@@ -192,6 +328,7 @@
       // 已在导出布局中隐藏，克隆后移除可避免编号文字进入 SVG 文本层；同时去掉含编号的悬停标题。
       if (hideRoundNumber) stripHiddenBadges(copy, '.numbering-badge.numbering-round');
       if (hideMatchNumber) stripHiddenBadges(copy, '.numbering-badge:not(.numbering-round)');
+      if (!displaySeriesDates) copy.querySelectorAll('.series-outcome-date').forEach(el => el.remove());
       if (leagueWidth) {
         const copyLeague = copy.querySelector('.round-col.league-results');
         const copyFinals = copy.querySelector('.round-col.finals-wide');
@@ -217,12 +354,14 @@
         margin: '0', zoom: '1', transform: 'none', position: 'absolute', left: padding - left + 'px', top: padding - top + 'px', overflow: 'visible'});
       const connectors = copy.querySelector('.svg-connectors');
       if (connectors) { connectors.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); connectors.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`); }
+      copy.querySelectorAll('.gsl-card-svg').forEach(el => el.setAttribute('xmlns', 'http://www.w3.org/2000/svg'));
       const isWiki = context.mode === 'wiki';
-      const modeTag = isDraw ? '抽签展板式' : (isWiki ? '维基版' : '现代版') + (context.orientation === 'vertical' ? '_竖版' : '');
+      const knockoutOnly = Boolean(leagueExport?.knockoutOnly || groupDoubleExport?.knockoutOnly);
+      const modeTag = (isDraw ? '抽签展板式' : (isWiki ? '维基版' : '现代版') + (context.orientation === 'vertical' ? '_竖版' : '')) + (knockoutOnly ? '_淘汰赛' : '');
       const palette = getComputedStyle(document.body);
       const background = palette.getPropertyValue('--canvas-bg').trim() || (isWiki || isDraw ? '#ffffff' : '#17191f');
       const text = palette.getPropertyValue('--text-main').trim() || (isWiki || isDraw ? '#202122' : '#eff0f5');
-      const font = '"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif';
+      const font = '"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif';
       const webHeader = headerStyle.value === 'web';
       const header = webHeader ? webpageHeader(width) : document.createElement('div');
       if (!webHeader) {
@@ -254,13 +393,15 @@
       const filename = `${context.year}_${context.shortName}_${context.editionNumber != null ? `第${context.editionNumber}届_` : ''}${modeTag}_${webHeader ? '网页版标题_' : ''}对阵图`.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
       return {svg, width, height: totalHeight, filename};
     } finally {
-      leagueCleanup?.();
-      document.body.classList.remove('export-capture', 'export-hide-round-number', 'export-hide-match-number');
-      if (isDraw) {
-        canvas.style.zoom = screenZoom;
-        viewport.scrollLeft = scrollLeft;
-        viewport.scrollTop = scrollTop;
+      groupDoubleExport?.restore?.();
+      leagueExport?.restore?.();
+      document.body.classList.remove('export-capture', 'export-hide-round-number', 'export-hide-match-number', 'export-show-series-dates');
+      if (switchedOrient && window.GoViewerBracketOrientation?.setTemporary) {
+        window.GoViewerBracketOrientation.setTemporary(originalOrient);
       }
+      canvas.style.zoom = screenZoom;
+      viewport.scrollLeft = scrollLeft;
+      viewport.scrollTop = scrollTop;
       window.prepareBracketExport();
     }
   }
@@ -268,7 +409,9 @@
     const image = new Image();
     image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(snap.svg);
     await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('图片生成失败，请改用 SVG 导出。')); });
-    const scale = Math.min(2, 16384 / Math.max(snap.width, snap.height), Math.sqrt(24000000 / (snap.width * snap.height)));
+    const requested = Math.max(1, Math.min(3, Number(exportScale?.value) || 2));
+    const maxPixels = requested >= 3 ? 40000000 : 24000000;
+    const scale = Math.min(requested, 16384 / Math.max(snap.width, snap.height), Math.sqrt(maxPixels / (snap.width * snap.height)));
     const canvas = document.createElement('canvas'); canvas.width = Math.ceil(snap.width * scale); canvas.height = Math.ceil(snap.height * scale);
     const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('浏览器无法生成 PNG，请使用 SVG 导出。');
     ctx.scale(scale, scale); ctx.drawImage(image, 0, 0);
@@ -284,6 +427,9 @@
     if (omitNote) omitNote.disabled = true;
     if (showRoundNumber) showRoundNumber.disabled = true;
     if (showMatchNumber) showMatchNumber.disabled = true;
+    if (showSeriesDates) showSeriesDates.disabled = true;
+    if (exportOrientation) exportOrientation.disabled = true;
+    if (exportScale) exportScale.disabled = true;
     if (scopeSelect) scopeSelect.disabled = true;
     status.textContent = '正在生成完整对阵图…';
     try {
@@ -295,17 +441,23 @@
       busy = false; pngButton.disabled = svgButton.disabled = headerStyle.disabled = false;
       if (showRoundNumber) showRoundNumber.disabled = false;
       if (showMatchNumber) showMatchNumber.disabled = false;
+      if (showSeriesDates) showSeriesDates.disabled = false;
+      if (exportOrientation) exportOrientation.disabled = false;
+      if (exportScale) exportScale.disabled = false;
       if (scopeSelect) scopeSelect.disabled = false;
       updateHeaderStyle();
     }
   }
   document.getElementById('btnExportBracket').onclick = () => {
     window.GoViewerTable?.hide();
-    const league = document.querySelector('#canvas .league-results');
-    const knockout = document.querySelector('#canvas .league-knockout');
-    if (scopeField) scopeField.hidden = !(league && knockout);
-    status.textContent = league
-      ? (knockout ? '导出全部循环圈分组与淘汰赛。' : '导出全部循环圈分组。')
+    const kinds = exportUiKinds();
+    syncScopeOptions(kinds);
+    const orientGroup = document.getElementById('orientationToggleGroup');
+    if (orientationField) orientationField.hidden = !orientGroup || orientGroup.hidden;
+    status.textContent = kinds.isLeague
+      ? (kinds.hasKnockout ? '导出全部循环圈分组与淘汰赛。' : '导出全部循环圈分组。')
+      : kinds.isGroupDouble
+      ? (kinds.hasKnockout ? '导出小组双败与淘汰赛。' : '导出小组双败阶段。')
       : document.querySelector('#canvas .nongshim-bracket')
       ? '导出当前农心杯对阵图。'
       : document.querySelector('#canvas .team-results')

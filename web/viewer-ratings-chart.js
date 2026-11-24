@@ -783,8 +783,11 @@ class RatingChartRenderer {
       breakOnMissing: true,    // 缺月断线（不跨缺月连线）
       idPrefix: '',            // 容器内局部 ID 前缀；空串保持工作区既有固定 ID
       chartTitle: null,
+      hideTitle: false,        // 隐藏 SVG 内置大标题（棋手页已由外部栏位提供）
       emptyText: null,
       axisLabel: null,
+      annotations: null,       // 可选夺冠标注 [{month_key, date, label, detail}]
+      onPointClick: null,      // 可选点击节点回调 ({month_key, date})
     }, options);
 
     this.data = null;
@@ -862,6 +865,15 @@ class RatingChartRenderer {
     this.data = null;
     this.svg = null;
     this.tooltip = null;
+    this._highlightHelper = null;
+  }
+
+  highlightMonth(keyOrDate) {
+    if (this._highlightHelper) this._highlightHelper.showByKey(keyOrDate);
+  }
+
+  clearHighlight() {
+    if (this._highlightHelper) this._highlightHelper.hide();
   }
 
 
@@ -1085,15 +1097,17 @@ class RatingChartRenderer {
     }
     svg.setAttribute('aria-label', chartTitle);
 
-    const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    titleEl.setAttribute('x', compact ? margin.left : width / 2);
-    titleEl.setAttribute('y', compact ? 22 : 25);
-    titleEl.setAttribute('text-anchor', compact ? 'start' : 'middle');
-    titleEl.setAttribute('fill', colors.text);
-    titleEl.setAttribute('font-size', compact ? '13' : '15.5');
-    titleEl.setAttribute('font-weight', '700');
-    titleEl.textContent = chartTitle;
-    svg.appendChild(titleEl);
+    if (!this.options.hideTitle) {
+      const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      titleEl.setAttribute('x', compact ? margin.left : width / 2);
+      titleEl.setAttribute('y', compact ? 22 : 25);
+      titleEl.setAttribute('text-anchor', compact ? 'start' : 'middle');
+      titleEl.setAttribute('fill', colors.text);
+      titleEl.setAttribute('font-size', compact ? '13' : '15.5');
+      titleEl.setAttribute('font-weight', '700');
+      titleEl.textContent = chartTitle;
+      svg.appendChild(titleEl);
+    }
 
     // X 轴刻度与标签
     const xAxisG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1327,7 +1341,7 @@ class RatingChartRenderer {
         }
 
         if (labelMode !== 'none') {
-          const isEdge = edgeMonths.has(point.month_key);
+          const isEdge = edgeMonths.has(point.date || point.month_key);
           let show;
           if (labelMode === 'all') {
             show = validCount <= 18
@@ -1401,6 +1415,55 @@ class RatingChartRenderer {
       const desc = document.createElementNS('http://www.w3.org/2000/svg', 'desc');
       desc.textContent = `${chartTitle}；有效月份 ${validCount} 个。`;
       svg.appendChild(desc);
+
+      // 夺冠里程碑标注：按月或对局日吸附到曲线点，并在 Tooltip 中追加赛事。
+      const annotations = Array.isArray(this.options.annotations) ? this.options.annotations : [];
+      if (!isRank && annotations.length && interactiveData.length) {
+        const annotG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        annotG.setAttribute('class', 'chart-annotations');
+        const gold = this._isDark() ? '#f5c451' : '#d97706';
+        annotations.forEach(item => {
+          const rawDate = String(item.date || '');
+          const mk = Number(item.month_key) || (rawDate.length >= 7 ? Number(rawDate.slice(0, 7).replace('-', '')) : 0);
+          if (!mk && !rawDate) return;
+          let target = null;
+          if (isDateAxis && rawDate) {
+            target = interactiveData.find(d => d.date && d.date >= rawDate) || null;
+            if (!target && mk) target = interactiveData.find(d => d.month_key === mk) || null;
+          } else if (mk) {
+            target = interactiveData.find(d => d.month_key === mk) || null;
+          }
+          if (!target) return;
+          const pt = target.points && target.points[0];
+          const ax = pt ? pt.x : target.x;
+          const ay = pt ? pt.y : (margin.top + 14);
+          const vline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          vline.setAttribute('x1', ax);
+          vline.setAttribute('x2', ax);
+          vline.setAttribute('y1', margin.top + 4);
+          vline.setAttribute('y2', margin.top + plotHeight);
+          vline.setAttribute('stroke', gold);
+          vline.setAttribute('stroke-width', '1');
+          vline.setAttribute('stroke-dasharray', '2 3');
+          vline.setAttribute('opacity', '0.55');
+          annotG.appendChild(vline);
+
+          const marker = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const my = Math.max(margin.top + 8, ay - 9);
+          marker.setAttribute('d', `M ${ax} ${my - 5} L ${ax + 4.5} ${my} L ${ax} ${my + 5} L ${ax - 4.5} ${my} Z`);
+          marker.setAttribute('fill', gold);
+          marker.setAttribute('stroke', colors.bg);
+          marker.setAttribute('stroke-width', '1');
+          annotG.appendChild(marker);
+
+          target.details.push({
+            label: '夺冠',
+            value: item.label || '',
+            color: gold,
+          });
+        });
+        if (annotG.children.length) svg.appendChild(annotG);
+      }
 
     } else if (mode === 'two-diff') {
       const p1 = players[0];
@@ -2736,8 +2799,28 @@ class RatingChartRenderer {
     overlay.addEventListener('click', event => {
       const coords = getSvgCoordinates(svg, event);
       const nearest = nearestFromX(coords.x);
-      if (nearest) showPoint(nearest, event.clientY);
+      if (nearest) {
+        showPoint(nearest, event.clientY);
+        if (typeof this.options.onPointClick === 'function') {
+          this.options.onPointClick({month_key: nearest.month_key, date: nearest.date || null});
+        }
+      }
     });
+
+    this._highlightHelper = {
+      showByKey: keyOrDate => {
+        const key = String(keyOrDate || '').trim();
+        if (!key) return;
+        const hit = interactiveData.find(d => {
+          if (d.date && d.date === key) return true;
+          const mk = String(d.month_key || '');
+          const mkDash = mk.length === 6 ? `${mk.slice(0, 4)}-${mk.slice(4)}` : mk;
+          return mk === key || mkDash === key;
+        });
+        if (hit) showPoint(hit, null);
+      },
+      hide: hidePoint,
+    };
 
     overlay.addEventListener('mouseleave', hidePoint);
     overlay.addEventListener('blur', () => {

@@ -294,7 +294,9 @@
         : status === 'decided' && known ? (won ? '胜' : '负') : '赛果待补';
       const symbol = status === 'no_result' ? '—' : status === 'scheduled' ? '…'
         : status === 'decided' && known ? (won ? '○' : '×') : '?';
-      return {symbol, label: `第${i + 1}局：${first.name_zh || '先列棋手'}${label}`, game: g};
+      const dateStr = dateKey(g.date);
+      const dateNote = dateStr ? ` (${dateStr})` : '';
+      return {symbol, date: dateStr, label: `第${i + 1}局${dateNote}：${first.name_zh || '先列棋手'}${label}`, game: g};
     });
   }
   // 导入的对局把来源编号写进 bracket_code（SRC-<来源编号>）用于溯源，它不是给人看的编排名；
@@ -640,7 +642,7 @@
   // share a column. Unknown later stages converge without inventing a branch.
   function doubleEliminationLanes(rounds, edges) {
     const winnerName = /胜者(?:组|組)?|勝者(?:组|組)?|胜部|勝部/;
-    const loserName = /败者(?:组|組)|敗者(?:组|組)|败部|敗部|败者复活|敗者復活/;
+    const loserName = /败者(?:组|組|战|戰)?|敗者(?:组|組|战|戰)?|败部|敗部|败者复活|敗者復活/;
     const grouped = rounds.some(r => /双败|雙敗/.test(r.round_name || '') || (r.matches || []).some(m => m.draw_stage || /^GRP-[A-H]-[1-5]$/.test(m.bracket_code || '')));
     const named = rounds.some(r => loserName.test(r.round_name || '')) && rounds.some(r =>
       winnerName.test(r.round_name || '') || (/本戦|本赛|本賽/.test(r.round_name || '') && !loserName.test(r.round_name || '')));
@@ -722,6 +724,285 @@
     const dateOf=r=>r.matches.map(m=>dateKey(m.date)).filter(Boolean).sort()[0] || '';
     return [...rounds].sort((a,b)=>Number(isFinalRound(a))-Number(isFinalRound(b)) ||
       (dateOf(a)&&dateOf(b) ? dateOf(a).localeCompare(dateOf(b)) : 0));
+  }
+
+  // Extract Class A (parallel 4-player GSL double-elimination groups) separately from
+  // Class B (full-bracket winner/loser lanes), returning structured groups + the
+  // remaining single-elimination knockout rounds + confirmed R1 origin tags (A1/B2).
+  function extractGroupDoubleElimination(rounds, data) {
+    if (!Array.isArray(rounds) || !rounds.length) return null;
+    const isFullBranchName = name => /^(?:本赛|本賽|本戦)?[｜|]?(?:胜者|勝者|败者|敗者|败部|敗部)(?:组|組)?(?:第\d+[轮回]|半决赛|準決勝|决赛|決賽)|^(?:总决赛|總決賽|败者决赛|敗者決賽|胜者决赛|勝者決賽)$/.test(String(name || '').replace(/\s+/g, ''));
+    if (rounds.some(r => isFullBranchName(r.round_name))) return null;
+
+    const GRP_RE = /^GRP-([A-H])-([1-5])$/;
+    const winIdOf = m => m?.winner?.id || m?.winner_id || '';
+    const pairIdsOf = m => participants(m).map(p => p?.id).filter(Boolean);
+    const makeGroup = (key, label) => ({
+      key,
+      label: label || (/^\d+$/.test(key) ? `${key}组` : `${key}组`),
+      first: [],
+      winners: null,
+      losers: null,
+      decider: null,
+      extraGames: [],
+    });
+    const assignExtraMatches = (groupsMap, extras) => {
+      for (const m of extras) {
+        const noteHit = /([A-H])组/.exec(String(m.notes || '') + ' ' + String(m.round_name || ''));
+        if (noteHit && groupsMap.has(noteHit[1])) {
+          groupsMap.get(noteHit[1]).extraGames.push(m);
+          continue;
+        }
+        const ids = pairIdsOf(m);
+        let placed = false;
+        if (ids.length) {
+          for (const g of groupsMap.values()) {
+            const gMatches = [...g.first, g.winners, g.losers, g.decider].filter(Boolean);
+            const gIds = new Set(gMatches.flatMap(pairIdsOf));
+            if (ids.every(id => gIds.has(id))) {
+              g.extraGames.push(m);
+              placed = true;
+              break;
+            }
+          }
+        }
+        if (!placed) return false;
+      }
+      return true;
+    };
+
+    let end = 0;
+    const groupsMap = new Map();
+    let mode = '';
+
+    // 1) Explicit GRP-[A-H]-[1-5] coded opening rounds (e.g., Samsung Cup 14–23).
+    const r0Matches = rounds[0]?.matches || [];
+    const r0Coded = r0Matches.filter(m => GRP_RE.test(m.bracket_code || ''));
+    if (r0Matches.length && r0Coded.length >= 8 && r0Coded.length >= r0Matches.length * 0.85) {
+      mode = 'grp';
+      const extras = [];
+      for (let i = 0; i < rounds.length; i++) {
+        const ms = rounds[i].matches || [];
+        if (!ms.length) break;
+        const coded = ms.filter(m => GRP_RE.test(m.bracket_code || ''));
+        if (!coded.length) break;
+        if (i > 0 && coded.length !== ms.length) break;
+        end = i + 1;
+        for (const m of ms) {
+          const hit = GRP_RE.exec(m.bracket_code || '');
+          if (!hit) { extras.push(m); continue; }
+          const [, letter, stepStr] = hit;
+          const step = Number(stepStr);
+          if (!groupsMap.has(letter)) groupsMap.set(letter, makeGroup(letter, `${letter}组`));
+          const g = groupsMap.get(letter);
+          if (step <= 2) g.first.push(m);
+          else if (step === 3 && !g.winners) g.winners = m;
+          else if (step === 4 && !g.losers) g.losers = m;
+          else if (step === 5 && !g.decider) g.decider = m;
+          else g.extraGames.push(m);
+        }
+        if (i === 0 && coded.length < ms.length) break;
+      }
+      if (rounds.slice(end).some(r => (r.matches || []).some(m => GRP_RE.test(m.bracket_code || '')))) return null;
+      if (!assignExtraMatches(groupsMap, extras)) return null;
+    }
+
+    // 2) Korean GSL stages tagged with draw_stage (e.g., kr_ryongseong, kr_future_02).
+    if (!mode && r0Matches.length && r0Matches.every(m => m.draw_stage?.size && m.draw_stage?.group)) {
+      mode = 'draw_stage';
+      const leadSize = r0Matches[0].draw_stage.size;
+      while (end < rounds.length) {
+        const ms = rounds[end].matches || [];
+        if (!ms.length || !ms.every(m => m.draw_stage?.size === leadSize && m.draw_stage?.group)) break;
+        end += 1;
+      }
+      const rest = rounds.slice(end);
+      if (rest.some(r => /双败|雙敗|胜者|勝者|败者|敗者|败部|敗部/.test(r.round_name || '')
+        || (r.matches || []).some(m => m.draw_stage))) return null;
+      for (const r of rounds.slice(0, end)) {
+        for (const m of r.matches || []) {
+          const d = m.draw_stage;
+          const key = String(d.group);
+          if (!groupsMap.has(key)) groupsMap.set(key, makeGroup(key, `${key}组`));
+          const g = groupsMap.get(key);
+          if (d.step === 1) g.first.push(m);
+          else if (d.branch === 'winner' && !g.winners) g.winners = m;
+          else if (d.branch === 'loser' && !g.losers) g.losers = m;
+          else if (d.branch === 'qualify' && !g.decider) g.decider = m;
+          else g.extraGames.push(m);
+        }
+      }
+    }
+
+    // 3) Leading double-elimination rounds without GRP- or draw_stage (e.g., GLOBIS Cup, fx_groupdouble).
+    if (!mode && /双败|雙敗/.test(rounds[0]?.round_name || '') && r0Matches.length) {
+      mode = 'connected';
+      while (end < rounds.length && /双败|雙敗/.test(rounds[end].round_name || '') && (rounds[end].matches || []).length) {
+        end += 1;
+      }
+      const rest = rounds.slice(end);
+      if (rest.some(r => /双败|雙敗|胜者|勝者|败者|敗者|败部|敗部/.test(r.round_name || '')
+        || (r.matches || []).some(m => m.draw_stage || /^GRP-/.test(m.bracket_code || '')))) return null;
+
+      const entries = [];
+      rounds.slice(0, end).forEach((round, roundIndex) => {
+        (round.matches || []).forEach(m => entries.push({m, round, roundIndex}));
+      });
+      if (!entries.length) return null;
+
+      const explicitKey = name => {
+        const clean = String(name || '').replace(/\s+/g, '');
+        const hit = /([A-H])组|双败淘汰([A-H])[123]/.exec(clean);
+        return hit ? (hit[1] || hit[2]) : null;
+      };
+      const allNamed = entries.every(e => explicitKey(e.round.round_name));
+      const buckets = new Map();
+
+      if (allNamed) {
+        for (const e of entries) {
+          const key = explicitKey(e.round.round_name);
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(e);
+        }
+      } else {
+        const parent = entries.map((_, i) => i);
+        const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+        const byPlayer = new Map();
+        entries.forEach((e, idx) => {
+          for (const pid of pairIdsOf(e.m)) {
+            if (!byPlayer.has(pid)) byPlayer.set(pid, idx);
+            else {
+              const a = find(byPlayer.get(pid)), b = find(idx);
+              if (a !== b) parent[b] = a;
+            }
+          }
+        });
+        const compMap = new Map();
+        entries.forEach((e, idx) => {
+          const root = find(idx);
+          if (!compMap.has(root)) compMap.set(root, []);
+          compMap.get(root).push(e);
+        });
+        const comps = [...compMap.values()];
+        if (comps.length < 2 || comps.some(c => c.length > 5)) return null;
+        comps.forEach((comp, i) => {
+          const letter = i < 26 ? String.fromCharCode(65 + i) : String(i + 1);
+          buckets.set(letter, comp);
+        });
+      }
+
+      const stepHint = name => {
+        const clean = String(name || '').replace(/\s+/g, '');
+        if (/第\s*3\s*[轮回]|复活|最終|最终|[A-H]3$/.test(clean)) return 3;
+        if (/胜者|勝者/.test(clean)) return 2;
+        if (/败者|敗者|败部|敗部/.test(clean)) return 2;
+        if (/第\s*2\s*[轮回]|[A-H]2$/.test(clean)) return 2;
+        if (/第\s*1\s*[轮回]|[A-H]1$/.test(clean)) return 1;
+        return 0;
+      };
+
+      for (const [key, groupEntries] of buckets) {
+        const distinctPlayers = new Set(groupEntries.flatMap(e => pairIdsOf(e.m)));
+        if (distinctPlayers.size > 4 || groupEntries.length > 5) return null;
+        const g = makeGroup(key, `${key}组`);
+        const hinted = groupEntries.map(e => ({...e, hint: stepHint(e.round.round_name)}));
+        const hasExplicitFirst = hinted.some(e => e.hint === 1);
+        const minRoundIdx = Math.min(...hinted.map(e => e.roundIndex));
+        for (const e of hinted) {
+          const isFirst = hasExplicitFirst ? e.hint === 1 : e.roundIndex === minRoundIdx;
+          if (isFirst && g.first.length < 2) g.first.push(e.m);
+        }
+        if (!g.first.length || g.first.length > 2) return null;
+
+        const firstSet = new Set(g.first);
+        const firstWinners = new Set(g.first.map(winIdOf).filter(Boolean));
+        const firstLosers = new Set(g.first.flatMap(m => {
+          const w = winIdOf(m);
+          return w ? pairIdsOf(m).filter(id => id !== w) : [];
+        }));
+
+        const remaining = hinted.filter(e => !firstSet.has(e.m));
+        const deciders = remaining.filter(e => e.hint === 3);
+        const stepTwos = remaining.filter(e => e.hint !== 3);
+
+        for (const e of stepTwos) {
+          const clean = String(e.round.round_name || '');
+          const pids = pairIdsOf(e.m);
+          if (/胜者|勝者/.test(clean) && !g.winners) { g.winners = e.m; continue; }
+          if (/败者|敗者|败部|敗部/.test(clean) && !g.losers) { g.losers = e.m; continue; }
+          if (pids.length && pids.every(id => firstWinners.has(id)) && !g.winners) { g.winners = e.m; continue; }
+          if (pids.length && pids.every(id => firstLosers.has(id)) && !g.losers) { g.losers = e.m; continue; }
+          if (!deciders.length && !g.decider && pids.some(id => firstWinners.has(id)) && pids.some(id => firstLosers.has(id))) {
+            g.decider = e.m; continue;
+          }
+          g.extraGames.push(e.m);
+        }
+        for (const e of deciders) {
+          if (!g.decider) g.decider = e.m;
+          else g.extraGames.push(e.m);
+        }
+        groupsMap.set(key, g);
+      }
+    }
+
+    if (!mode || groupsMap.size < 2 || end === 0) return null;
+    const groups = [...groupsMap.values()].sort((a, b) =>
+      String(a.key).localeCompare(String(b.key), 'en', {numeric: true}));
+
+    // Final validation: every group holds at most 4 distinct players and <= 2 opening games.
+    for (const g of groups) {
+      const core = [...g.first, g.winners, g.losers, g.decider].filter(Boolean);
+      const pids = new Set(core.flatMap(pairIdsOf));
+      if (g.first.length > 2 || pids.size > 4 || (!core.length && !g.extraGames.length)) return null;
+      g.first.sort((a, b) => {
+        const ac = GRP_RE.exec(a.bracket_code || ''), bc = GRP_RE.exec(b.bracket_code || '');
+        if (ac && bc) return Number(ac[2]) - Number(bc[2]);
+        return (a.match_number || 0) - (b.match_number || 0);
+      });
+      g.qualifiers = [];
+      const prefix = /^\d+$/.test(g.key) ? `${g.key}组` : g.key;
+      const wWinId = winIdOf(g.winners);
+      if (wWinId) {
+        const p = participants(g.winners).find(x => x.id === wWinId) || g.winners.winner;
+        if (p?.id) g.qualifiers.push({player: p, seed: 1, tag: `${prefix}1`});
+      }
+      const dWinId = winIdOf(g.decider);
+      if (dWinId) {
+        const p = participants(g.decider).find(x => x.id === dWinId) || g.decider.winner;
+        if (p?.id) g.qualifiers.push({player: p, seed: 2, tag: `${prefix}2`});
+      }
+    }
+
+    const groupRounds = rounds.slice(0, end);
+    const knockoutRounds = rounds.slice(end);
+    const allMatches = groupRounds.flatMap(r => r.matches || []);
+    const matchIds = new Set(allMatches.map(m => m.id).filter(Boolean));
+    const dates = allMatches.map(m => dateKey(m.date)).filter(Boolean).sort();
+    const dateRange = dates.length ? (dates[0] === dates.at(-1) ? dates[0] : `${dates[0]} ～ ${dates.at(-1)}`) : '';
+
+    const qualifierOriginMap = Object.create(null);
+    for (const g of groups) {
+      for (const q of g.qualifiers) {
+        if (q.player?.id && !qualifierOriginMap[q.player.id]) {
+          qualifierOriginMap[q.player.id] = {groupKey: g.key, groupLabel: g.label, seed: q.seed, tag: q.tag};
+        }
+      }
+    }
+
+    const leadSize = Number(/(\d+)强/.exec(groupRounds[0]?.round_name || '')?.[1]) || (groups.length * 4);
+    const title = `${leadSize}强小组双败`;
+
+    return {
+      title,
+      dateRange,
+      groups,
+      groupRounds,
+      knockoutRounds,
+      matchIds,
+      totalGames: allMatches.length,
+      qualifierOriginMap,
+      data,
+    };
   }
   function prelimRegionOf(round) {
     const name = round.round_name || '';
@@ -1528,7 +1809,7 @@
   }
   const api = {escape, raw, html, samePlayer, participants, formatRank, hasPlayer, dateKey, dateLabel, editionYearLabel, editionTitle, editionLabel, editionOngoing, editionChampionText, isMainOngoing, dateConflict, dateConflictInEdition, isPrelimRoundName, prelimRoundIds,
     isPrelimRound, isUnclassifiedRound, isLeagueRound, isGroupTableRound, prelimRegionOf, prelimGroups, prelimGroupOf, prelimGroupTree, prelimTreeGroups, PRELIM_REGION_ORDER, roundDisplayName,
-    aggregateSeries, finalSeries, seriesOutcomes, seriesGameLabel, singleGamePresentation, isFinalRound, sourceRoundsForView, roundsForView, renderedMatches, edgesForView, unconfirmedLinks, collectPlayers, doubleEliminationLanes, doubleEliminationBlocks,
+    aggregateSeries, finalSeries, seriesOutcomes, seriesGameLabel, singleGamePresentation, isFinalRound, sourceRoundsForView, roundsForView, renderedMatches, edgesForView, unconfirmedLinks, collectPlayers, doubleEliminationLanes, doubleEliminationBlocks, extractGroupDoubleElimination,
     supportsStageDrawView, compareDrawMatches, groupRoundMatchesForDrawView,
     matchesPlayerQuery, findPlayer, comparePlayerGames, filterPlayerGames, playerGameRows, nativeNameHtml, isWorld, isTeamCompetition, isSingleGameFinal, editionFormatChip, categoryLabel, matchResult, winnerLabel, isNoResult, hasResult, bracketEdgesForView, editionPlayers, isGroupedPlayerLabel,
     matchStatus, statusLabel, STATUS_LABELS, hydrateSnapshot};

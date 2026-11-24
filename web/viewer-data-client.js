@@ -17,6 +17,7 @@
   const LOCAL_PAGE_API = '/api/page-data';
   const MAX_EDITIONS = 10;
   const MAX_EDITION_BYTES = 30 * 1024 * 1024;
+  const MAX_QUERY_CACHE = 30;
   const ROSTER_PAGE = 100;
   const ROUND_PAGE = 100;
 
@@ -32,7 +33,28 @@
     optionsPromise: null,
     catalogMeta: null,
     bootstrapPromise: null,
+    queryCache: new Map(),
   };
+
+  function rememberQuery(key, payload) {
+    if (state.queryCache.has(key)) state.queryCache.delete(key);
+    state.queryCache.set(key, payload);
+    while (state.queryCache.size > MAX_QUERY_CACHE) {
+      const oldest = state.queryCache.keys().next().value;
+      state.queryCache.delete(oldest);
+    }
+    return payload;
+  }
+
+  function cachedQuery(key, loader, options) {
+    if (!(options && options.fresh) && state.queryCache.has(key)) {
+      const hit = state.queryCache.get(key);
+      state.queryCache.delete(key);
+      state.queryCache.set(key, hit);
+      return Promise.resolve(hit);
+    }
+    return loader().then(payload => rememberQuery(key, payload));
+  }
 
   function dataVersion(payload) {
     return payload && payload.data_version ? String(payload.data_version) : null;
@@ -45,6 +67,7 @@
     state.cachedOptions = null;
     state.optionsPromise = null;
     state.bootstrapPromise = null;
+    state.queryCache.clear();
   }
 
   function noteVersion(payload) {
@@ -141,6 +164,7 @@
     state.editions.clear();
     state.editionBytes = 0;
     state.inflight.clear();
+    state.queryCache.clear();
   }
 
   // 兼容层：既有页面模块仍按本地接口书写（/api/head-to-head、/api/ratings/...）。
@@ -444,13 +468,30 @@
       }
       return state.optionsPromise;
     },
-    player(id, params) { return request('/players/' + encodeURIComponent(id), params); },
-    playerGames(id, filters) { return request('/players/' + encodeURIComponent(id) + '/games', filters); },
+    player(id, params, options) {
+      return cachedQuery('player:' + id + query(params),
+        () => request('/players/' + encodeURIComponent(id), params, options), options);
+    },
+    playerSummary(id, options) {
+      return cachedQuery('summary:' + id,
+        () => request('/players/' + encodeURIComponent(id) + '/summary', {}, options), options);
+    },
+    playerGames(id, filters, options) {
+      return cachedQuery('games:' + id + query(filters),
+        () => request('/players/' + encodeURIComponent(id) + '/games', filters, options), options);
+    },
     searchPlayers(term, limit) {
       return request('/players', {q: term, page_size: limit || 20});
     },
     headToHead(params) { return request('/head-to-head', params); },
-    ratingArchive(params) { return request('/ratings/player-archive', params); },
+    opponents(params, options) {
+      return cachedQuery('opp:' + query(params),
+        () => request('/head-to-head/opponents', params, options), options);
+    },
+    ratingArchive(params, options) {
+      return cachedQuery('rating:' + query(params),
+        () => request('/ratings/player-archive', params, options), options);
+    },
     monthlyRanking(params) { return request('/ratings/monthly', params); },
     sgf(matchId, format) {
       return request('/sgf/' + encodeURIComponent(matchId), {format: format || 'meta'});
@@ -581,8 +622,24 @@
       return state.optionsPromise;
     },
     playerCareer(id, includeCatalog) { return requestPageData('/player-career', {id, catalog: includeCatalog ? '1' : undefined}); },
-    player(id) { return requestPageData('/player-profile', {id}); },
-    playerGames(id, filters) { return requestPageData('/player-games', {id, ...filters}); },
+    player(id, params, options) {
+      return cachedQuery('player:' + id, () => requestPageData('/player-profile', {id}, options), options);
+    },
+    playerSummary(id, options) {
+      return cachedQuery('summary:' + id, () => requestPageData('/player-summary', {id}, options), options);
+    },
+    playerGames(id, filters, options) {
+      return cachedQuery('games:' + id + query(filters),
+        () => requestPageData('/player-games', {id, ...filters}, options), options);
+    },
+    opponents(params, options) {
+      return cachedQuery('opp:' + query(params),
+        () => requestPageData('/api/head-to-head/opponents', params, options), options);
+    },
+    ratingArchive(params, options) {
+      return cachedQuery('rating:' + query(params),
+        () => requestPageData('/api/ratings/player-archive', params, options), options);
+    },
     searchPlayers(q, limit) { return requestPageData('/api/head-to-head/players', {q, limit}); },
     version() {
       return this.bootstrap().then(payload => ({
@@ -625,11 +682,18 @@
     getCachedOptions: () => (state.cachedOptions || {}).tournaments || null,
     search: params => backend.search(params),
     searchCatalog: (q, limit) => backend.searchCatalog(q, limit),
-    player: (id, params) => backend.player(id, params),
-    playerGames: (id, filters) => backend.playerGames(id, filters),
+    player: (id, params, options) => backend.player(id, params, options),
+    playerSummary: (id, options) => backend.playerSummary ? backend.playerSummary(id, options) : Promise.resolve(null),
+    playerGames: (id, filters, options) => backend.playerGames(id, filters, options),
+    opponents: (params, options) => backend.opponents ? backend.opponents(params, options) : Promise.resolve({items: []}),
     searchPlayers: (term, limit) => backend.searchPlayers(term, limit),
     headToHead: params => backend.headToHead(params),
-    ratingArchive: params => backend.ratingArchive(params),
+    ratingArchive: (params, options) => backend.ratingArchive(params, options),
+    prefetchPlayer(id) {
+      if (!id) return;
+      Promise.resolve(this.player(id, {page_size: 1})).catch(() => {});
+      Promise.resolve(this.playerSummary(id)).catch(() => {});
+    },
     monthlyRanking: params => backend.monthlyRanking(params),
     sgf: (matchId, format) => backend.sgf(matchId, format),
     leaderboards: () => backend.leaderboards(),

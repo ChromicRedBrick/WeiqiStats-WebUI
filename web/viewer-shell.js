@@ -12,6 +12,7 @@
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
   const shortcutLabel = isMac ? '⌘K' : 'Ctrl K';
   const SIDEBAR_KEY = 'go_sidebar_width_v1';
+  const SIDEBAR_COLLAPSED_KEY = 'go_sidebar_collapsed_v1';
   const SIDEBAR_MIN = 13;
   const SIDEBAR_MAX = 26;
 
@@ -38,6 +39,7 @@
       calendar: '<rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M4 10h16M8 3.5V7M16 3.5V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
       edit: '<path d="m5 19 3.5-.7L19 7.8 16.2 5 5.7 15.5 5 19Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m14.5 6.7 2.8 2.8" stroke="currentColor" stroke-width="1.6"/>',
       eye: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.6"/>',
+      sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 4.5v15" stroke="currentColor" stroke-width="1.6"/>',
       arrow: '<path d="M5 12h14m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>'
     };
     return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">${paths[name] || paths.arrow}</svg>`;
@@ -94,6 +96,90 @@
     const aside = document.querySelector('.app-sidebar');
     const handle = document.getElementById('sidebarResizer');
     if (!aside || !handle) return;
+
+    const collapseBtn = document.getElementById('btnCollapseSidebar');
+    const expandBtn = document.getElementById('btnExpandSidebar');
+    const mobileMedia = window.matchMedia('(max-width: 760px)');
+    const toggleShortcutLabel = isMac ? '⌘B' : 'Ctrl+B';
+    const toggleKeyAttr = isMac ? 'Meta+B' : 'Control+B';
+    if (collapseBtn) {
+      collapseBtn.title = `收起赛事目录 (${toggleShortcutLabel})`;
+      collapseBtn.setAttribute('aria-keyshortcuts', toggleKeyAttr);
+    }
+    if (expandBtn) {
+      expandBtn.title = `展开赛事目录 (${toggleShortcutLabel})`;
+      expandBtn.setAttribute('aria-keyshortcuts', toggleKeyAttr);
+    }
+
+    let collapsed = document.body.classList.contains('sidebar-collapsed');
+    try {
+      if (!collapsed && localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1') collapsed = true;
+    } catch (_) {}
+
+    function syncCollapseUi() {
+      document.body.classList.toggle('sidebar-collapsed', collapsed);
+      collapseBtn?.setAttribute('aria-expanded', String(!collapsed));
+      expandBtn?.setAttribute('aria-expanded', String(!collapsed));
+    }
+
+    let notifyTimer = 0;
+    let notifyRaf = 0;
+    let onTransitionEnd = null;
+    function cancelPendingNotify() {
+      if (notifyTimer) { clearTimeout(notifyTimer); notifyTimer = 0; }
+      if (notifyRaf) { cancelAnimationFrame(notifyRaf); notifyRaf = 0; }
+      if (onTransitionEnd) {
+        aside.removeEventListener('transitionend', onTransitionEnd);
+        onTransitionEnd = null;
+      }
+    }
+
+    function notifySidebarToggled() {
+      cancelPendingNotify();
+      if (mobileMedia.matches) return;
+      const fire = () => {
+        cancelPendingNotify();
+        window.dispatchEvent(new CustomEvent('go:sidebar-toggled', {detail: {collapsed}}));
+      };
+      const dur = getComputedStyle(aside).transitionDuration || '';
+      const hasTransition = dur.split(',').some(part => parseFloat(part) > 0);
+      if (!hasTransition) {
+        notifyRaf = requestAnimationFrame(fire);
+        return;
+      }
+      onTransitionEnd = event => {
+        if (event.target !== aside) return;
+        if (event.propertyName !== 'width' && event.propertyName !== 'flex-basis') return;
+        fire();
+      };
+      aside.addEventListener('transitionend', onTransitionEnd);
+      notifyTimer = setTimeout(fire, 220);
+    }
+
+    function setCollapsed(next, {persist = true, restoreFocus = false} = {}) {
+      const target = Boolean(next);
+      if (target === collapsed) return;
+      collapsed = target;
+      syncCollapseUi();
+      if (persist) {
+        try {
+          if (collapsed) localStorage.setItem(SIDEBAR_COLLAPSED_KEY, '1');
+          else localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+        } catch (_) {}
+      }
+      if (restoreFocus && !mobileMedia.matches) {
+        if (collapsed) expandBtn?.focus({preventScroll: true});
+        else collapseBtn?.focus({preventScroll: true});
+      }
+      notifySidebarToggled();
+    }
+
+    syncCollapseUi();
+    collapseBtn?.addEventListener('click', () => setCollapsed(true, {restoreFocus: true}));
+    expandBtn?.addEventListener('click', () => setCollapsed(false, {restoreFocus: true}));
+    registerShortcut('mod+b', () => {
+      if (!mobileMedia.matches) setCollapsed(!collapsed);
+    }, {description: '折叠或展开赛事目录'});
 
     const maxWidth = () => Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, (window.innerWidth - 520) / remSize()));
     const current = () => {
@@ -193,7 +279,10 @@
       reset,
       width: () => Math.round(current() * 100) / 100,
       min: SIDEBAR_MIN,
-      max: () => Math.round(maxWidth() * 100) / 100
+      max: () => Math.round(maxWidth() * 100) / 100,
+      isCollapsed: () => collapsed,
+      setCollapsed,
+      toggle: () => { if (!mobileMedia.matches) setCollapsed(!collapsed); }
     };
   }
 
@@ -295,6 +384,7 @@
         ...(!document.getElementById('btnViewDraw')?.hidden && !isDraw() ? [{section: 'view', id: 'presentation-draw', label: '切换为抽签展板式对阵', meta: '按比赛日与原始签位自下而上展示', icon: 'bracket', keywords: '抽签 展板 签位 draw', run: () => click('btnViewDraw')}] : []),
         ...(!document.getElementById('orientationToggleGroup')?.hidden ? [{section: 'view', id: 'orientation', label: isVertical() ? '切换为横版对阵' : '切换为竖版对阵', meta: `当前：${isVertical() ? '竖版（自上而下）' : '横版（自左向右）'}`, icon: 'bracket', keywords: '横版 竖版 方向 orientation horizontal vertical', run: () => click(isVertical() ? 'btnOrientHorizontal' : 'btnOrientVertical')}] : []),
         {section: 'view', id: 'export', label: '导出对阵图', meta: '导出 PNG 或 SVG', icon: 'download', keywords: '导出 图片 svg png export', run: () => click('btnExportBracket')},
+        {section: 'view', id: 'sidebar-toggle', label: window.GoViewerSidebar?.isCollapsed?.() ? '展开赛事目录' : '收起赛事目录', meta: `${isMac ? '⌘B' : 'Ctrl+B'} · 切换左侧列表显示`, icon: 'sidebar', keywords: '侧栏 目录 折叠 收起 展开 sidebar collapse', run: () => window.GoViewerSidebar?.toggle?.()},
         {section: 'view', id: 'theme-light', label: '切换为浅色外观', meta: themePref() === 'light' ? '当前' : '暖灰浅色', icon: 'sun', keywords: '浅色 主题 外观 theme light', run: () => click('btnThemeLight')},
         {section: 'view', id: 'theme-dark', label: '切换为深色外观', meta: themePref() === 'dark' ? '当前' : '分层炭灰', icon: 'moon', keywords: '深色 主题 外观 theme dark', run: () => click('btnThemeDark')},
         {section: 'view', id: 'theme-auto', label: '跟随系统外观', meta: themePref() === 'auto' ? '当前' : '随系统明暗自动切换', icon: 'monitor', keywords: '跟随 系统 自动 主题 theme auto', run: () => click('btnThemeAuto')},
@@ -746,11 +836,11 @@
       if (!spoilerMemoryHidden || !(event.target instanceof Element)) return;
       const source = event.target;
       const control = source.closest('a, button, input, select');
-      const score = source.closest('.wiki-score-td, .wiki-r1-score, .player-outcome, .result-badge, .draw-winner-result, #matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"])');
+      const score = source.closest('.wiki-score-td, .wiki-r1-score, .player-outcome, .match-status-pill, .series-outcomes, .series-game-winner, .series-game-result, .finals-score, .finals-champion, .draw-winner-result, #matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"])');
       const target = score
-        ? score.closest('.wiki-match-table, .wiki-r1-row, .match-card, .draw-winner-box, tr[data-table-match], .h2h-games-table tr') || score
+        ? score.closest('.wiki-match-table, .wiki-r1-row, .match-card, .series-game-row, .finals-container, .wiki-finals-node, .draw-winner-box, tr[data-table-match], .h2h-games-table tr') || score
         : source.closest('.player-games-result, .podium-name, .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally, .player-recent-form, .h2h-recent-form, .career-matrix td');
-      if (!target || (control && !control.matches('.result-badge'))) return;
+      if (!target || control) return;
       if (control && target.classList.contains('spoiler-revealed')) return;
       event.preventDefault();
       event.stopPropagation();

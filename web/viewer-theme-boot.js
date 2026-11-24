@@ -4,6 +4,7 @@
   var isIndex = Boolean(document.body && document.body.dataset && document.body.dataset.bootIndex === '1');
   var presentation = 'wiki';
   var orientation = 'horizontal';
+  var storedSidebarCollapsed = false;
   var params = new URLSearchParams(location.search);
   try {
     var legacy = isIndex ? localStorage.getItem('go_bracket_view_mode_v2') : null;
@@ -21,6 +22,7 @@
       if (isFinite(storedSidebar) && storedSidebar >= 13 && storedSidebar <= 26) {
         document.documentElement.style.setProperty('--sidebar-width', storedSidebar + 'rem');
       }
+      storedSidebarCollapsed = localStorage.getItem('go_sidebar_collapsed_v1') === '1';
     }
   } catch (_) {}
 
@@ -52,6 +54,7 @@
     if (isIndex) {
       document.body.dataset.viewMode = presentation;
       document.body.dataset.bracketOrientation = orientation;
+      if (storedSidebarCollapsed) document.body.classList.add('sidebar-collapsed');
     }
   }
 })();

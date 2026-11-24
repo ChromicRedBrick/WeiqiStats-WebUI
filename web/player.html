@@ -9,32 +9,27 @@
   <link rel="stylesheet" href="viewer-tokens.css">
   <link rel="stylesheet" href="viewer.css">
   <link rel="stylesheet" href="viewer-player.css">
-  <link rel="stylesheet" href="viewer-sgf.css">
   <link rel="stylesheet" href="viewer-dialogs.css">
 </head>
 <body class="player-profile-page" data-standalone-page="player" data-theme-toggle-id="playerTheme">
   <script src="viewer-theme-boot.js"></script>
   <nav class="subpage-bar player-page-nav" aria-label="棋手页内导航">
-    <span class="subpage-bar-label">棋手资料</span>
+    <span class="subpage-bar-label" id="playerNavIdentity">棋手资料</span>
+    <a id="playerOverviewNav" href="#overview" data-section-link="playerOverviewSection">概览</a>
     <a id="playerRatingsNav" href="#ratings" data-section-link="playerRatingsSection">等级分</a>
     <a id="playerCareerNav" href="#career" data-section-link="career">生涯战绩</a>
     <a id="playerGamesNav" href="#games" data-section-link="playerGamesSection">历史对局</a>
-    <a id="playerH2hNav" href="head-to-head.html">对手交锋</a>
+    <a id="playerH2hNav" href="#h2h" data-section-link="playerH2hSection">对手交锋</a>
   </nav>
-  <main class="player-page-main" id="playerProfile" aria-live="polite"><p role="status">加载中…</p></main>
-  <script src="viewer-data-client.js"></script>
-  <script src="viewer-model.js"></script>
-  <script src="viewer-flags.js"></script>
-  <script src="viewer-theme.js"></script>
-  <script src="viewer-shell.js"></script>
-  <script src="viewer-sgf-engine.js"></script>
-  <script src="viewer-sgf-trial.js"></script>
-  <script src="viewer-sgf-find.js"></script>
-  <script src="viewer-sgf-host.js"></script>
-  <script src="viewer-sgf.js"></script>
-  <script src="viewer-career.js"></script>
-  <script src="viewer-ratings-chart.js"></script>
-  <script src="viewer-player-ratings.js"></script>
-  <script src="viewer-player.js"></script>
+  <main class="player-page-main" id="playerProfile" aria-live="polite"></main>
+  <script defer src="viewer-data-client.js"></script>
+  <script defer src="viewer-model.js"></script>
+  <script defer src="viewer-flags.js"></script>
+  <script defer src="viewer-theme.js"></script>
+  <script defer src="viewer-shell.js"></script>
+  <script defer src="viewer-sgf-host.js"></script>
+  <script defer src="viewer-career.js"></script>
+  <script defer src="viewer-player-ratings.js"></script>
+  <script defer src="viewer-player.js"></script>
 </body>
 </html>

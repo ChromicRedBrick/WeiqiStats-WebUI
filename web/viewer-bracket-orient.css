@@ -13,7 +13,8 @@
 }
 
 body[data-bracket-orientation="vertical"]:not([data-view-mode="draw"]) .bracket-canvas,
-body[data-bracket-orientation="vertical"]:not([data-view-mode="draw"]) .league-knockout {
+body[data-bracket-orientation="vertical"]:not([data-view-mode="draw"]) .league-knockout,
+body[data-bracket-orientation="vertical"]:not([data-view-mode="draw"]) .stage-knockout {
   flex-direction: column;
   gap: 2.75rem;
 }
@@ -82,7 +83,7 @@ body[data-view-mode="draw"] .bracket-canvas {
   display: block;
   width: max-content;
   min-width: 100%;
-  padding: 1.5rem 2rem 2rem;
+  padding: 1.5rem 2rem 4.5rem;
 }
 
 .draw-board {
@@ -605,7 +606,9 @@ body:not(.export-capture) .draw-final-player.highlight-player {
   }
 
   .app-sidebar .sidebar-heading { display: flex; gap: .5rem; padding: .6rem .75rem; }
-  .app-sidebar .sidebar-heading #sidebarCount { margin-inline-end: auto; }
+  .app-sidebar .sidebar-heading #sidebarCount { margin-inline-start: 0; margin-inline-end: auto; }
+  .app-sidebar .sidebar-collapse-btn,
+  .sidebar-expand-btn { display: none; }
   .catalog-close, .mobile-catalog-toggle, .workspace-more-toggle, .mobile-edition-info { display: inline-flex; }
 
   .app-sidebar .aside-list {

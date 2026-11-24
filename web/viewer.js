@@ -20,17 +20,24 @@
       const LEGACY_MODE_KEY = 'go_bracket_view_mode_v2';
       const PRESENTATION_KEY = 'go_bracket_presentation_v1';
       const ORIENTATION_KEY = 'go_bracket_orientation_v1';
+      const CHAMPION_PATH_KEY = 'go_bracket_champion_path_v1';
+      const DOUBLE_LOSER_LINES_KEY = 'go_double_loser_lines_v1';
       const THEME_KEY = 'go_viewer_theme_v1';
       let legacyMode = '';
       let storedPresentation = 'wiki';
       let storedOrientation = 'horizontal';
+      let championPathEnabled = true;
+      let showLoserLines = true;
       let storedTheme = '';
       try {
         legacyMode = localStorage.getItem(LEGACY_MODE_KEY) || '';
         storedPresentation = localStorage.getItem(PRESENTATION_KEY) || (legacyMode === 'modern' ? 'modern' : 'wiki');
         storedOrientation = localStorage.getItem(ORIENTATION_KEY) || 'horizontal';
+        if (localStorage.getItem(CHAMPION_PATH_KEY) === 'off') championPathEnabled = false;
+        if (localStorage.getItem(DOUBLE_LOSER_LINES_KEY) === 'hover') showLoserLines = false;
         storedTheme = localStorage.getItem(THEME_KEY) || '';
       } catch (_) {}
+      document.body.dataset.championPath = championPathEnabled ? 'on' : 'off';
       const router = window.GoViewerRouter || null;
       const themeManager = window.GoViewerTheme || null;
       const initialRoute = router ? router.read() : null;
@@ -43,6 +50,7 @@
       let catalog = null;
       let zoomLevel = 1.0;
       let activeHighlightPlayer = null;
+      let activeGroupDouble = null;
       const initialRouteMode = initialRoute ? initialRoute.mode : urlParams.get("mode");
       let lastStandardViewMode = ["modern", "wiki"].includes(initialRouteMode || storedPresentation) ? (initialRouteMode || storedPresentation) : "wiki";
       let currentViewMode = ["modern", "wiki", "draw"].includes(initialRouteMode || storedPresentation) ? (initialRouteMode || storedPresentation) : "wiki";
@@ -424,6 +432,7 @@
         document.body.dataset.bracketOrientation = currentOrientation;
 
         const orientGroup = document.getElementById('orientationToggleGroup');
+        const champBtn = document.getElementById('btnChampionPath');
         const btnHoriz = document.getElementById('btnOrientHorizontal');
         const btnVert = document.getElementById('btnOrientVertical');
         if (btnHoriz && btnVert) {
@@ -432,7 +441,7 @@
           btnHoriz.setAttribute('aria-pressed', String(currentOrientation === 'horizontal'));
           btnVert.setAttribute('aria-pressed', String(currentOrientation === 'vertical'));
         }
-        if (orientGroup) {
+        if (orientGroup || champBtn) {
           const isTeam = Boolean(data && M.isTeamCompetition(data, meta));
           let isPureLeague = false;
           if (data && !isTeam && window.GoViewerLeague) {
@@ -441,7 +450,22 @@
             isPureLeague = leagues.groups.length > 0 && leagues.rest.length === 0;
           }
           const prelimTreeActive = Boolean(data && currentScope === 'prelim' && prelimViewMode === 'tree' && resolvePrelimTreeState(data).hasTrees);
-          orientGroup.hidden = !data || (currentScope !== 'main' && !prelimTreeActive) || currentViewMode === 'draw' || isTeam || isPureLeague;
+          const hideTreeTools = !data || (currentScope !== 'main' && !prelimTreeActive) || currentViewMode === 'draw' || isTeam || isPureLeague;
+          if (orientGroup) orientGroup.hidden = hideTreeTools;
+          if (champBtn) champBtn.hidden = hideTreeTools || prelimTreeActive;
+        }
+      }
+
+      function applyChampionPath(enabled, {persist = true} = {}) {
+        championPathEnabled = Boolean(enabled);
+        document.body.dataset.championPath = championPathEnabled ? 'on' : 'off';
+        const btn = document.getElementById('btnChampionPath');
+        if (btn) {
+          btn.classList.toggle('is-active', championPathEnabled);
+          btn.setAttribute('aria-pressed', String(championPathEnabled));
+        }
+        if (persist) {
+          try { localStorage.setItem(CHAMPION_PATH_KEY, championPathEnabled ? 'on' : 'off'); } catch (_) {}
         }
       }
 
@@ -463,6 +487,10 @@
         }
         activeHighlightPlayer = null;
         document.getElementById('btnHighlightClear').disabled = true;
+        const statusBar = document.getElementById('highlightStatusBar');
+        if (statusBar) statusBar.hidden = true;
+        const statusText = document.getElementById('highlightStatusText');
+        if (statusText) statusText.textContent = '';
         syncViewModeButtons(data);
         if (!opts.fromRoute && !opts.skipUrlSync) syncUrl({push: opts.push !== false});
 
@@ -486,7 +514,7 @@
         if (!opts.fromRoute && !opts.skipUrlSync) syncUrl({push: opts.push !== false});
         if (data && currentViewMode !== 'draw') {
           renderCurrentBracket(data);
-          frameCurrentView();
+          if (!opts.skipFrame) frameCurrentView();
           requestDraw();
         }
       }
@@ -559,13 +587,22 @@
       function frameCurrentView() {
         const data = allData[currentEditionId];
         const isStaticBoard = M.isTeamCompetition(data) || canvas.querySelector('.league-results');
+        canvas.style.zoom = '1';
         if (isStaticBoard) {
           zoomLevel = 1;
+        } else if (canvas.dataset.groupDouble === 'true') {
+          const naturalWidth = Math.max(1, canvas.scrollWidth);
+          const fit = (viewport.clientWidth - 48) / naturalWidth;
+          zoomLevel = Math.max(0.75, Math.min(1.05, fit));
         } else if (currentViewMode === 'draw') {
           const fit = (viewport.clientWidth - 40) / Math.max(1, canvas.scrollWidth);
           zoomLevel = fit < 1 ? Math.max(0.65, fit) : 1;
         } else if (currentViewMode === 'modern' && currentOrientation === 'horizontal') {
           zoomLevel = Math.max(0.85, Math.min(1, (viewport.clientWidth - 40) / canvas.offsetWidth));
+        } else if (currentViewMode === 'wiki' && currentOrientation === 'horizontal' && canvas.querySelectorAll('.round-col').length >= 4) {
+          const naturalWidth = Math.max(1, canvas.scrollWidth);
+          const fit = (viewport.clientWidth - 48) / naturalWidth;
+          zoomLevel = Math.max(0.85, Math.min(1.25, fit));
         } else {
           zoomLevel = 1;
         }
@@ -574,7 +611,7 @@
         viewport.scrollLeft = currentViewMode === 'draw'
           ? Math.max(0, (canvas.scrollWidth * zoomLevel - viewport.clientWidth) / 2)
           : 0;
-        viewport.scrollTop = currentViewMode === 'modern' && currentOrientation === 'horizontal' && !isStaticBoard
+        viewport.scrollTop = currentViewMode === 'modern' && currentOrientation === 'horizontal' && !isStaticBoard && !canvas.dataset.groupDouble
           ? Math.max(0, (canvas.scrollHeight * zoomLevel - viewport.clientHeight) / 2) : 0;
       }
 
@@ -708,6 +745,9 @@
         const editionReview = document.getElementById('editionReviewBtn');
         if (editionReview) editionReview.onclick = () => window.GoViewerReview?.open('editions', data.edition.id, '本届来源与核查');
 
+        const hasFinalsTarget = !M.isTeamCompetition(data, meta) && Boolean(
+          (data.rounds || []).some(r => !M.isPrelimRound(r) && !M.isUnclassifiedRound(r) && isFinalRoundName(r))
+        );
         podiumEl.innerHTML = `
           <div class="podium-box">
             <div class="podium-icon">01</div>
@@ -729,7 +769,26 @@
               </div>
             </div>
           </div>
+          ${hasFinalsTarget ? '<button class="btn btn-small podium-locate-btn" id="btnLocateFinals" type="button" title="滚动定位至决赛卡片">定位决赛</button>' : ''}
         `;
+        const locateBtn = document.getElementById('btnLocateFinals');
+        if (locateBtn) {
+          locateBtn.onclick = () => {
+            const target = canvas.querySelector('.wiki-finals-node, .finals-container, .draw-final-unit, .wiki-col-finals .wiki-match-table');
+            if (!target) return;
+            const vpRect = viewport.getBoundingClientRect();
+            const tRect = target.getBoundingClientRect();
+            const nextLeft = viewport.scrollLeft + (tRect.left - vpRect.left) - Math.max(24, (viewport.clientWidth - tRect.width) / 2);
+            const nextTop = viewport.scrollTop + (tRect.top - vpRect.top) - Math.max(24, (viewport.clientHeight - tRect.height) / 2);
+            const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+            viewport.scrollTo({left: Math.max(0, nextLeft), top: Math.max(0, nextTop), behavior});
+            target.classList.remove('is-finals-focus');
+            void target.offsetWidth;
+            target.classList.add('is-finals-focus');
+            clearTimeout(target._finalsFocusTimer);
+            target._finalsFocusTimer = setTimeout(() => target.classList.remove('is-finals-focus'), 1800);
+          };
+        }
       }
 
       // Dispatch Rendering Based on Current View Mode
@@ -788,14 +847,36 @@
           drawConnectors(); if (activeHighlightPlayer) highlightPlayer(activeHighlightPlayer);
         });
       }
+      function applyLoserLinesPref(show, {persist = false} = {}) {
+        showLoserLines = Boolean(show);
+        canvas.dataset.loserLines = showLoserLines ? 'show' : 'hover';
+        const btn = document.getElementById('btnToggleLoserLines');
+        if (btn) {
+          btn.setAttribute('aria-pressed', String(showLoserLines));
+          btn.textContent = showLoserLines ? '跌落虚线：显示' : '跌落虚线：仅悬停';
+        }
+        if (persist) {
+          try { localStorage.setItem(DOUBLE_LOSER_LINES_KEY, showLoserLines ? 'show' : 'hover'); } catch (_) {}
+        }
+      }
+
       function renderCurrentBracket(data) {
-        canvas.querySelectorAll('.league-results, .league-knockout, .draw-board').forEach(el => el.remove());
+        canvas.querySelectorAll('.league-results, .league-knockout, .draw-board, .group-double-section, .stage-bridge, .stage-knockout, .double-lane-divider').forEach(el => el.remove());
         delete canvas.dataset.league;
+        delete canvas.dataset.groupDouble;
         delete canvas.dataset.binaryTree;
         delete canvas.dataset.doubleElimination;
         delete canvas.dataset.prelimTree;
         delete canvas.dataset.bracketOrientation;
+        activeGroupDouble = null;
         document.body.dataset.competitionView = M.isTeamCompetition(data, indexList.find(e => e.id === currentEditionId)) ? 'team' : 'bracket';
+        const updateLoserToggle = () => {
+          const btn = document.getElementById('btnToggleLoserLines');
+          if (btn) {
+            btn.hidden = canvas.dataset.doubleElimination !== 'true';
+            if (!btn.hidden) applyLoserLinesPref(showLoserLines, {persist: false});
+          }
+        };
         if (currentScope === 'prelim' && M.prelimGroups(data).length) {
           const ps = resolvePrelimTreeState(data);
           if (ps.hasTrees && prelimViewMode === 'tree' && ps.activeGroup?.tree) {
@@ -823,6 +904,7 @@
           renderPrelimPanel(ps.nonLeagueData);
           if (ps.leagues.groups.length) renderLeagues(data, ps.leagues.groups);
           syncViewModeButtons(data);
+          updateLoserToggle();
           renderRoundNav();
           return;
         }
@@ -833,6 +915,7 @@
           svg.style.width = '0px'; svg.style.height = '0px';
           renderPrelimPanel(data);
           syncViewModeButtons(data);
+          updateLoserToggle();
           renderRoundNav();
           return;
         }
@@ -849,17 +932,53 @@
           renderTeamResults(data);
         } else {
           const view = extractRoundsData(data), leagues = window.GoViewerLeague.partition(data, view.mainRounds);
-          const knockoutView = {...view, mainRounds: leagues.rest};
+          const groupDouble = !leagues.groups.length && M.extractGroupDoubleElimination
+            ? M.extractGroupDoubleElimination(leagues.rest, data)
+            : null;
+          const knockoutView = groupDouble
+            ? {...view, mainRounds: groupDouble.knockoutRounds}
+            : {...view, mainRounds: leagues.rest};
           const leagueIds = new Set(leagues.leagueRounds.flatMap(r => r.matches.map(m => m.id)));
           if (leagues.groups.length) currentEdges = currentEdges.filter(e => !leagueIds.has(e.sourceId) && !leagueIds.has(e.targetId));
+          if (groupDouble) {
+            activeGroupDouble = groupDouble;
+            canvas.dataset.groupDouble = 'true';
+            currentEdges = currentEdges.filter(e => !groupDouble.matchIds.has(e.sourceId) && !groupDouble.matchIds.has(e.targetId));
+          }
+          const renderOpts = groupDouble ? {originMap: groupDouble.qualifierOriginMap} : {};
           if (currentViewMode === 'draw' && M.supportsStageDrawView(data)) {
             renderDrawBoardBracket(data, knockoutView);
           } else {
             canvas.dataset.bracketOrientation = currentOrientation;
-            if (currentViewMode === 'wiki') renderWikiBracket(data, knockoutView, leagues.groups.length > 0);
-            else renderModernBracket(data, knockoutView, leagues.groups.length > 0);
+            if (currentViewMode === 'wiki') renderWikiBracket(data, knockoutView, leagues.groups.length > 0, renderOpts);
+            else renderModernBracket(data, knockoutView, leagues.groups.length > 0, renderOpts);
           }
-          if (leagues.groups.length) {
+          if (groupDouble) {
+            const columns = [...canvas.querySelectorAll('.round-col')];
+            let bridge = null;
+            let knockout = null;
+            if (columns.length) {
+              knockout = document.createElement('section');
+              knockout.className = 'stage-knockout';
+              knockout.setAttribute('aria-label', '单败淘汰赛');
+              knockout.append(...columns);
+              canvas.appendChild(knockout);
+              const firstKoName = M.roundDisplayName(groupDouble.knockoutRounds[0]) || '淘汰赛';
+              bridge = document.createElement('div');
+              bridge.className = 'stage-bridge';
+              bridge.innerHTML = `<span class="stage-bridge-label">${esc(firstKoName)} · ${groupDouble.groups.length} 组前两名晋级</span>`;
+            }
+            window.GoViewerGroupDouble?.render({
+              stage: groupDouble,
+              canvas,
+              flag: getFlagSvg,
+              showMatch: game => showMatchDetails(M.singleGamePresentation(game), {singleGame: true}),
+              showPlayer: id => window.showPlayer(id),
+              highlightPlayer,
+              onToggleCollapse: () => requestDraw(),
+            });
+            if (bridge && knockout) canvas.insertBefore(bridge, knockout);
+          } else if (leagues.groups.length) {
             const columns = [...canvas.querySelectorAll('.round-col')];
             if (columns.length) {
               const knockout = document.createElement('section'); knockout.className = 'league-knockout';
@@ -869,6 +988,7 @@
             renderLeagues(data, leagues.groups);
           }
         }
+        updateLoserToggle();
         renderRoundNav();
         window.GoNumbering?.decorate?.(canvas);
         observeBracketLayout();
@@ -942,6 +1062,11 @@
         // 会得到一串同名按钮；这里为每个组只出一个按钮，文字用组名。
         const seenGroups = new Set();
         const targets = [];
+        const groupSection = canvas.querySelector('.group-double-section');
+        if (groupSection) {
+          const groupTitle = groupSection.querySelector('.group-double-title');
+          if (groupTitle) targets.push({section: groupSection, label: groupTitle});
+        }
         for (const section of canvas.querySelectorAll('.round-col, .draw-stage-row, .prelim-round')) {
           const group = section.classList.contains('prelim-round')
             ? section.closest('.prelim-region[data-group]') : null;
@@ -962,7 +1087,11 @@
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'round-chip';
-          button.textContent = (label.querySelector('.round-step')?.nextSibling?.textContent || label.textContent).trim();
+          const cleanLabel = label.cloneNode(true);
+          cleanLabel.querySelectorAll('.numbering-badge, .round-step').forEach(el => el.remove());
+          button.textContent = cleanLabel.textContent.trim();
+          const numBadge = label.querySelector('.numbering-round');
+          if (numBadge) button.title = numBadge.textContent.trim();
           button.onclick = () => {
             const origin = viewport.getBoundingClientRect(), target = section.getBoundingClientRect();
             viewport.scrollTo({
@@ -1100,10 +1229,67 @@
             ? '<circle cx="12" cy="12" r="8" />'
             : '<path d="M4 4L20 20M20 4L4 20" />'}</svg>` : esc(symbol);
         return `<span class="series-outcomes" aria-label="逐局赛果，以第一行棋手为准">${outcomes.length
-          ? outcomes.map(o => `<span class="series-outcome" data-symbol="${esc(o.symbol)}" title="${esc(o.label)}" aria-label="${esc(o.label)}">${mark(o.symbol)}</span>`).join('')
+          ? outcomes.map(o => {
+            const mmdd = /^\d{4}-(\d{2}-\d{2})$/.exec(o.date || '')?.[1] || '';
+            return `<span class="series-outcome" data-symbol="${esc(o.symbol)}" title="${esc(o.label)}" aria-label="${esc(o.label)}">${mark(o.symbol)}${mmdd ? `<span class="series-outcome-date">${esc(mmdd)}</span>` : ''}</span>`;
+          }).join('')
           : '<span class="series-unrecorded">逐局未载</span>'}</span>`;
       }
-      function seriesControls(host, m, wiki = false) {
+      function createSeriesGameList(games, {variant = 'card', horizontal = false, extraClass = ''} = {}) {
+        const panel = document.createElement('div');
+        panel.className = 'series-games series-game-list'
+          + (variant === 'wiki' ? ' wiki-series-games' : '')
+          + (horizontal ? ' series-games-horizontal' + (variant === 'wiki' ? ' wiki-series-horizontal' : '') : '')
+          + (extraClass ? ' ' + extraClass : '');
+        panel.setAttribute('aria-label', '逐局比赛');
+        const editionYear = allData[currentEditionId]?.edition?.year;
+        const years = new Set(games.map(g => /^(\d{4})-/.exec(String(g.date || '').trim())?.[1]).filter(Boolean));
+        const sharedYear = years.size === 1 ? [...years][0] : editionYear;
+        games.forEach((rawGame, i) => {
+          const game = M.singleGamePresentation(rawGame);
+          const row = document.createElement('div');
+          row.className = 'series-game-row';
+          row.id = (variant === 'wiki' ? 'wiki-series-game-' : 'series-game-') + game.id;
+          row.dataset.matchId = game.id;
+          row.setAttribute('role', 'button');
+          row.setAttribute('tabindex', '0');
+          const fullDate = M.dateLabel(game.date);
+          const dateText = compactCardDate(fullDate, sharedYear);
+          const winner = game.winner || {};
+          const hasWinner = Boolean(winner.id);
+          const status = M.matchStatus(game);
+          const winColor = hasWinner
+            ? (game.black_player_id === winner.id ? 'black' : game.white_player_id === winner.id ? 'white' : '')
+            : '';
+          const winStone = winColor
+            ? `<i class="stone-icon stone-${winColor}" title="执${winColor === 'black' ? '黑' : '白'}" aria-hidden="true"></i>` : '';
+          const winFlag = hasWinner && winner.nationality ? getFlagSvg(winner.nationality) : '';
+          const winName = hasWinner ? (winner.name_zh || '—') : '—';
+          const resultText = hasWinner ? M.winnerLabel(game)
+            : (status === 'no_result' || status === 'scheduled' ? M.statusLabel(game) : '—');
+          const label = `第${i + 1}局`;
+          const codeNote = game.bracket_code && !/^GAME-\d+$/i.test(game.bracket_code) ? `${game.bracket_code} · ` : '';
+          row.title = `${codeNote}${label} · ${fullDate}${hasWinner ? ` · ${winName} ${resultText}` : ` · ${M.matchResult(game)}`}`;
+          row.innerHTML = `<div class="series-game-meta"><span class="series-game-num">${esc(label)}</span>`
+            + `<span class="series-game-date" title="${esc(fullDate)}">${esc(dateText)}</span></div>`
+            + `<div class="series-game-main">`
+            + (hasWinner
+              ? `<span class="series-game-winner" data-player-name="${esc(winName)}" data-player-id="${esc(winner.id)}">${winStone}${winFlag}<span class="series-game-winner-name">${esc(winName)}</span></span>`
+              : `<span class="series-game-winner series-game-winner-empty">—</span>`)
+            + `<span class="series-game-result">${esc(resultText)}</span></div>`;
+          const openDetails = event => {
+            event.stopPropagation();
+            showMatchDetails(rawGame, {singleGame: true, gameNumber: i});
+          };
+          row.onclick = openDetails;
+          row.onkeydown = event => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDetails(event); }
+          };
+          panel.append(row);
+        });
+        return panel;
+      }
+      function seriesControls(host, m, wiki = false, horizontal = false) {
         const actions = host.querySelector('.series-actions');
         const open = expandedSeries.has(seriesKey(m));
         if (m.subgames?.length) {
@@ -1124,43 +1310,25 @@
         details.type = 'button'; details.className = 'series-details match-details-btn'; details.textContent = '详情';
         details.onclick = event => {event.stopPropagation(); showMatchDetails(m);};
         actions.append(details);
-        if (!wiki && open && m.subgames?.length) {
-          const panel = document.createElement('div'); panel.className = 'series-games';
-          panel.setAttribute('aria-label', '逐局比赛');
-          m.subgames.forEach((g, i) => {
-            const card = createMatchCard(g, !!m.isFinalSeries, false, true, m.isFinalSeries ? i : null);
-            card.id = 'series-game-' + g.id;
-            panel.append(card);
-          });
-          host.append(panel);
+        if (open && m.subgames?.length) {
+          host.append(createSeriesGameList(m.subgames, {variant: wiki ? 'wiki' : 'card', horizontal}));
         }
       }
-      function createSeriesNode(m, wiki, top = 0, horizontal = false) {
+      function createSeriesNode(m, wiki, top = 0, horizontal = false, extra = {}) {
         const node = document.createElement('div');
         node.className = 'series-node'; node.dataset.seriesId = m.id;
         node.style.top = top + 'px';
-        if (wiki && expandedSeries.has(seriesKey(m)) && m.subgames?.length) {
-          node.classList.add('wiki-series-expanded');
-          if (horizontal) node.classList.add('wiki-series-expanded-wide');
-          // The series keeps its advancement anchor while its summary is replaced.
-          node.id = 'wiki-match-' + m.id;
-          const panel = document.createElement('div');
-          panel.className = 'series-games wiki-series-games' + (horizontal ? ' wiki-series-horizontal' : '');
-          panel.setAttribute('aria-label', '逐局比赛');
-          m.subgames.forEach((game, i) => {
-            const block = document.createElement('div'); block.className = 'wiki-series-game';
-            block.innerHTML = `<div class="wiki-game-heading"><span>${esc(M.seriesGameLabel(game, i))}</span><span>${esc(M.dateLabel(game.date))}</span></div>`;
-            const table = createWikiMatchTable(game, 0, {singleGame: true, gameNumber: i});
-            table.id = 'wiki-series-game-' + game.id;
-            block.append(table); panel.append(block);
-          });
-          const actions = document.createElement('div'); actions.className = 'series-actions wiki-series-actions';
-          node.append(panel, actions);
-        } else {
-          const summary = wiki ? createWikiMatchTable(m, 0) : createMatchCard(m, false, false);
-          node.append(summary);
+        const open = expandedSeries.has(seriesKey(m)) && Boolean(m.subgames?.length);
+        if (open) {
+          node.classList.add('is-series-expanded');
+          if (wiki) {
+            node.classList.add('wiki-series-expanded');
+            if (horizontal) node.classList.add('wiki-series-expanded-wide');
+          }
         }
-        seriesControls(node, m, wiki);
+        const summary = wiki ? createWikiMatchTable(m, 0, extra) : createMatchCard(m, false, false, false, null, extra);
+        node.append(summary);
+        seriesControls(node, m, wiki, horizontal);
         return node;
       }
 
@@ -1259,6 +1427,79 @@
         }
       }
 
+      function roundDateRangeText(round) {
+        const raw = String(round?.date_range || '').trim();
+        const dates = [...new Set((round?.matches || [])
+          .map(m => M.dateKey(m?.date))
+          .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
+        if (dates.length >= 2 && (!raw || !/[～~–—]|\d{4}-\d{2}-\d{2}\s*-\s*\d{2,4}/.test(raw))) {
+          const first = dates[0], last = dates[dates.length - 1];
+          return first.slice(0, 4) === last.slice(0, 4)
+            ? `${first} ～ ${last.slice(5)}`
+            : `${first} ～ ${last}`;
+        }
+        return raw || dates[0] || '';
+      }
+
+      function buildDropRefMap(mainRounds, doubleLanes, edges) {
+        if (!doubleLanes || !edges?.length) return null;
+        const laneOfMatch = new Map();
+        const orderOfMatch = new Map();
+        let seq = 0;
+        mainRounds.forEach((r, ri) => {
+          const laneMap = doubleLanes[ri] || {};
+          (r.matches || []).forEach(m => {
+            if (m?.id) {
+              laneOfMatch.set(m.id, laneMap[m.id] || 'final');
+              orderOfMatch.set(m.id, seq++);
+            }
+          });
+        });
+        const dropEdges = edges
+          .filter(e => e.kind === 'loser' && laneOfMatch.get(e.sourceId) === 'winner' && laneOfMatch.get(e.targetId) === 'loser')
+          .sort((a, b) => (orderOfMatch.get(a.sourceId) ?? 0) - (orderOfMatch.get(b.sourceId) ?? 0));
+        if (!dropEdges.length) return null;
+        const srcByMatch = new Map();
+        const dstByMatch = new Map();
+        let count = 0;
+        for (const e of dropEdges) {
+          let info = srcByMatch.get(e.sourceId);
+          if (!info) {
+            info = {code: `W${++count}`, player: e.player || ''};
+            srcByMatch.set(e.sourceId, info);
+          }
+          if (!dstByMatch.has(e.targetId)) dstByMatch.set(e.targetId, []);
+          dstByMatch.get(e.targetId).push({code: info.code, player: e.player || info.player});
+        }
+        return {srcByMatch, dstByMatch};
+      }
+
+      function originBadgeHtml(player, originMap) {
+        const origin = player?.id && originMap ? originMap[player.id] : null;
+        if (!origin) return '';
+        const title = `${origin.groupLabel}${origin.seed === 1 ? '胜者战出线' : '出线战晋级'}`;
+        return `<span class="origin-group-badge" title="${esc(title)}">${esc(origin.tag)}</span>`;
+      }
+
+      function dropDstBadgeHtml(matchId, player, dropRefs) {
+        const list = dropRefs?.dstByMatch?.get(matchId);
+        if (!list?.length || !player) return '';
+        const pName = player.name_zh || '';
+        const hit = list.find(item => item.player && pName && item.player === pName)
+          || (list.length === 1 && !list[0].player ? list[0] : null);
+        if (!hit) return '';
+        return `<span class="drop-ref-badge drop-ref-dst" title="来自胜者组 ${esc(hit.code)} 负者">↓${esc(hit.code)}</span>`;
+      }
+
+      function dropSrcBadgeHtml(matchId, player, won, isSeries, dropRefs) {
+        if (isSeries || won) return '';
+        const info = dropRefs?.srcByMatch?.get(matchId);
+        if (!info) return '';
+        const pName = player?.name_zh || '';
+        if (info.player && pName && info.player !== pName) return '';
+        return `<span class="drop-ref-badge drop-ref-src" title="负者落入败者组 ${esc(info.code)}">${esc(info.code)}</span>`;
+      }
+
       // ----------------------------------------------------
       // View Mode A: Graphite workspace with aligned advancement stages.
       // ----------------------------------------------------
@@ -1267,6 +1508,7 @@
         canvas.querySelectorAll('.round-col').forEach(col => col.remove());
         const vertical = currentOrientation === 'vertical';
         const {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks} = resolveKnockoutPlan(roundsView, data, opts);
+        const dropRefs = doubleLanes && !doubleBlocks ? buildDropRefMap(mainRounds, doubleLanes, currentEdges) : null;
         canvas.dataset.binaryTree = String(Boolean(plan));
         canvas.dataset.doubleElimination = String(Boolean(doubleLanes));
         const {thirdPlaceRound} = roundsView;
@@ -1277,9 +1519,13 @@
           const games = roundsMatches[index];
           const column = document.createElement('div');
           column.className = 'round-col'; column.dataset.roundOrder = round.round_order;
+          const dateSpan = roundDateRangeText(round);
+          const roundDateText = dateSpan
+            ? `${dateSpan} · ${round.matches.length}局`
+            : `${round.matches.length}局`;
           column.innerHTML = `<div class="round-header">
             <div class="round-title" ${round.source_rounds ? '' : `data-object-table="rounds" data-object-id="${esc(round.id)}" role="button" tabindex="0"`} title="${round.source_rounds ? '按赛制合并显示的原始赛段' : '编辑赛段资料'}"><span class="round-step">${String(index + 1).padStart(2,'0')}</span>${esc(M.roundDisplayName(round))}</div>
-            <div class="round-date">${esc(round.date_range || '日期未载')} · ${round.matches.length}局</div>
+            <div class="round-date">${esc(roundDateText)}</div>
             </div><div class="modern-stage round-matches"></div>`;
           column.querySelector('.round-title').title = round.source_round_name || round.round_name;
           canvas.appendChild(column);
@@ -1287,7 +1533,7 @@
           const nodes = [];
           const summary = final ? M.finalSeries(round, data) : null;
           if (final && summary) {
-            // 纯循环圈赛事把决赛单独放在表格下方，逐局卡片横向展开；
+            // 纯循环圈赛事把决赛单独放在表格下方，逐局横向展开；
             // 若决赛是本赛淘汰树的终点，则保持竖向，随连线排在最后一列。
             const horizontal = leagueMode && mainRounds.length === 1;
             if (horizontal) column.classList.add('finals-wide');
@@ -1295,21 +1541,59 @@
             const group = document.createElement('div');
             group.className = 'finals-container' + (horizontal ? ' finals-horizontal' : '');
             group.id = 'match-' + finalGames[0].id;
-            const scoreLine = `<div class="series-overview"><span>本届总比分</span><strong>${esc(data.edition.finals_score || '待定')}</strong></div>`;
             const finalTitle = M.isSingleGameFinal(data) ? '决赛' : `决赛 · ${esc(data.edition.finals_type || '番棋')}`;
-            group.innerHTML = horizontal
-              ? `<div class="finals-head"><div class="finals-badge-title">${finalTitle}</div>${scoreLine}</div><div class="finals-games"></div>`
-              : `<div class="finals-badge-title">${finalTitle}</div>${scoreLine}`;
-            const list = horizontal ? group.querySelector('.finals-games') : group;
-            finalGames.forEach((game, i) => {
-              const card = createMatchCard(game, true, false, true, finalGames.length > 1 ? i : null);
-              if (!i) card.id = 'match-game-' + game.id;
-              list.appendChild(card);
-            });
-            const details = document.createElement('button'); details.type = 'button'; details.className = 'series-details';
-            details.textContent = '详情';
+            const scoreValue = data.edition.finals_score || summary.series_score || '';
+            const longScore = scoreValue.length > 6;
+            const champ = data.champion?.id ? data.champion : null;
+            const champHtml = champ
+              ? `<div class="finals-champion" data-player-id="${esc(champ.id)}" data-player-name="${esc(champ.name_zh)}" role="button" tabindex="0">${champ.nationality ? getFlagSvg(champ.nationality) : ''}<span class="finals-champion-name">${esc(champ.name_zh)}</span><span class="finals-champion-label">冠军</span></div>`
+              : '';
+            const details = document.createElement('button');
+            details.type = 'button'; details.className = 'series-details'; details.textContent = '详情';
             details.onclick = () => showMatchDetails({...finalGames[0], subgames: finalGames, isFinalSeries: true});
-            (horizontal ? group.querySelector('.finals-head') : group).appendChild(details);
+            const head = document.createElement('div');
+            head.className = 'finals-head';
+            head.innerHTML = `<div class="finals-badge-title">${finalTitle}</div><strong class="finals-score${longScore ? ' is-long' : ''}">${esc(scoreValue || '—')}</strong>`;
+            if (horizontal) head.appendChild(details);
+            group.appendChild(head);
+            if (champHtml) group.insertAdjacentHTML('beforeend', champHtml);
+            const finalOrigin = index === 0 ? opts?.originMap : null;
+            if (finalGames.length === 1) {
+              const card = createMatchCard(finalGames[0], true, false, true, null, {originMap: finalOrigin});
+              card.id = 'match-game-' + finalGames[0].id;
+              group.appendChild(card);
+            } else {
+              const finalists = M.participants(summary);
+              const fWinner = summary.winner || {};
+              const hasFinalWinner = Boolean(fWinner.id);
+              const numeric = /^(\d+)-(\d+)$/.exec(summary.series_score || '');
+              const wScore = summary.winner_score ?? (numeric ? numeric[1] : '');
+              const lScore = summary.loser_score ?? (numeric ? numeric[2] : '');
+              const matchup = document.createElement('div');
+              matchup.className = 'finals-matchup';
+              matchup.innerHTML = finalists.map((p, slot) => {
+                const won = hasFinalWinner && M.samePlayer(fWinner, p);
+                const lost = hasFinalWinner && !won;
+                const sc = summary.player_scores ? summary.player_scores[slot]
+                  : (won ? wScore : (hasFinalWinner ? lScore : ''));
+                return `<div class="player-row finals-matchup-row${won ? ' winner' : lost ? ' loser' : ''}" data-player-name="${esc(p.name_zh || '待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
+                  <div class="player-info">${p.id ? getFlagSvg(p.nationality) : ''}<span class="player-name">${esc(p.name_zh || '待定')}</span>${originBadgeHtml(p, finalOrigin)}</div>
+                  <span class="player-outcome">${esc(sc ?? '')}</span></div>`;
+              }).join('');
+              group.appendChild(matchup);
+              group.appendChild(createSeriesGameList(finalGames, {
+                variant: 'card',
+                horizontal,
+                extraClass: horizontal ? 'finals-games' : '',
+              }));
+            }
+            if (!horizontal) group.appendChild(details);
+            group.querySelectorAll('.finals-champion[data-player-id], .finals-matchup-row').forEach(el => {
+              const name = el.dataset.playerName, id = el.dataset.playerId;
+              el.onmouseenter = () => id && highlightPlayer(name);
+              el.onclick = event => { event.stopPropagation(); if (id) window.showPlayer(id); };
+              el.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); el.click(); } };
+            });
             stage.appendChild(group);
             nodes.push({id:finalGames[0].id, height:group.offsetHeight, width:group.offsetWidth, element:group});
             if (thirdPlaceRound?.matches.length) {
@@ -1319,8 +1603,14 @@
               stage.appendChild(box); third = {element:box, height:box.offsetHeight, width:box.offsetWidth};
             }
           } else {
+            const nodeExtra = {originMap: index === 0 ? opts?.originMap : null, dropRefs};
             games.forEach(game => {
-              const card = game.isSeries || game.series_score ? createSeriesNode(game, false) : createMatchCard(game, false, false); stage.appendChild(card);
+              const card = game.isSeries || game.series_score
+                ? createSeriesNode(game, false, 0, false, nodeExtra)
+                : createMatchCard(game, false, false, false, null, nodeExtra);
+              const lane = doubleLanes?.[index]?.[game.id] || '';
+              if (lane) card.dataset.doubleLane = lane;
+              stage.appendChild(card);
               nodes.push({id:game.id, height:card.offsetHeight, width:card.offsetWidth, element:card});
             });
           }
@@ -1328,10 +1618,10 @@
         });
         const preserveOrder = data.edition?.draw_policy === 'redraw' && !plan;
         if (vertical) {
-          const layout = doubleLanes ? window.GoViewerLayout.arrangeDoubleElimination(stages, doubleLanes, currentEdges, 22, 'horizontal', doubleBlocks)
-            : plan?.byeCompact ? window.GoViewerLayout.arrangeByeHeadCompact(stages, plan.r0Slots, 22, 'horizontal')
-            : plan?.hasByeFirstRound ? window.GoViewerLayout.arrangeBinaryWithByes(stages, plan.r0Slots, 22, 'horizontal')
-            : window.GoViewerLayout.arrangeAxis(stages, currentEdges, 22, preserveOrder, 'horizontal');
+          const layout = doubleLanes ? window.GoViewerLayout.arrangeDoubleElimination(stages, doubleLanes, currentEdges, 18, 'horizontal', doubleBlocks)
+            : plan?.byeCompact ? window.GoViewerLayout.arrangeByeHeadCompact(stages, plan.r0Slots, 18, 'horizontal')
+            : plan?.hasByeFirstRound ? window.GoViewerLayout.arrangeBinaryWithByes(stages, plan.r0Slots, 18, 'horizontal')
+            : window.GoViewerLayout.arrangeAxis(stages, currentEdges, 18, preserveOrder, 'horizontal');
           layout.stages.forEach((nodes, idx) => {
             let rowHeight = 0;
             nodes.forEach(node => {
@@ -1342,50 +1632,69 @@
             if (third && idx === layout.stages.length - 1) {
               rowHeight = Math.max(rowHeight, third.element.offsetHeight);
             }
-            containers[idx].style.height = Math.max(112, rowHeight) + 'px';
+            containers[idx].style.height = Math.max(80, rowHeight) + 'px';
           });
           let width = layout.width;
           if (third) {
             const finalsRight = Math.max(0, ...layout.stages.at(-1).map(p => p.left + p.width));
-            third.element.style.left = finalsRight + 30 + 'px';
+            third.element.style.left = finalsRight + 24 + 'px';
             third.element.style.top = '0px';
-            width = Math.max(width, finalsRight + 30 + third.width);
+            width = Math.max(width, finalsRight + 24 + third.width);
           }
           containers.forEach(stage => stage.style.width = Math.max(220, width + (doubleLanes ? 50 : 0)) + 'px');
         } else {
-          const layout = doubleLanes ? window.GoViewerLayout.arrangeDoubleElimination(stages, doubleLanes, currentEdges, 30, 'vertical', doubleBlocks)
-            : plan?.byeCompact ? window.GoViewerLayout.arrangeByeHeadCompact(stages, plan.r0Slots, 30, 'vertical')
-            : plan?.hasByeFirstRound ? window.GoViewerLayout.arrangeBinaryWithByes(stages, plan.r0Slots, 30, 'vertical')
-            : window.GoViewerLayout.arrange(stages, currentEdges, 30, preserveOrder);
+          const layout = doubleLanes ? window.GoViewerLayout.arrangeDoubleElimination(stages, doubleLanes, currentEdges, 24, 'vertical', doubleBlocks)
+            : plan?.byeCompact ? window.GoViewerLayout.arrangeByeHeadCompact(stages, plan.r0Slots, 24, 'vertical')
+            : plan?.hasByeFirstRound ? window.GoViewerLayout.arrangeBinaryWithByes(stages, plan.r0Slots, 24, 'vertical')
+            : window.GoViewerLayout.arrange(stages, currentEdges, 24, preserveOrder);
           layout.stages.forEach(nodes => nodes.forEach(node => node.element.style.top = node.top + 'px'));
           let height = layout.height;
           if (third) {
             const finalsBottom = Math.max(0,...layout.stages.at(-1).map(p => p.top + p.height));
-            third.element.style.top = finalsBottom + 30 + 'px';
-            height = Math.max(height, finalsBottom + 30 + third.height);
+            third.element.style.top = finalsBottom + 24 + 'px';
+            height = Math.max(height, finalsBottom + 24 + third.height);
           }
           containers.forEach(stage => stage.style.height = (height + (doubleLanes ? 50 : 0)) + 'px');
         }
         alignSingleFeederStages();
       }
 
-      function createMatchCard(m, isFinalSubgame, isThirdPlace, singleGame = isFinalSubgame, gameNumber = null) {
+      function compactCardDate(fullDate, editionYear) {
+        const text = String(fullDate || '').trim();
+        if (!text || text === '日期未知') return '—';
+        const yearStr = editionYear != null ? String(editionYear) : '';
+        const range = /^(\d{4})-(\d{2})-(\d{2})\s*[~～—-]\s*(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+        if (range) {
+          const [, y1, m1, d1, y2, m2, d2] = range;
+          const prefix1 = yearStr && y1 === yearStr ? '' : `${y1}-`;
+          if (y1 === y2 && m1 === m2) return `${prefix1}${m1}-${d1}～${d2}`;
+          if (y1 === y2) return `${prefix1}${m1}-${d1}～${m2}-${d2}`;
+          const prefix2 = yearStr && y2 === yearStr ? '' : `${y2}-`;
+          return `${prefix1}${m1}-${d1}～${prefix2}${m2}-${d2}`;
+        }
+        return yearStr ? text.replace(new RegExp('\\b' + yearStr + '-', 'g'), '') : text;
+      }
+
+      function createMatchCard(m, isFinalSubgame, isThirdPlace, singleGame = isFinalSubgame, gameNumber = null, extra = {}) {
         if (singleGame) m = M.singleGamePresentation(m);
         const card = document.createElement('div');
         card.className = 'match-card' + (isThirdPlace ? ' match-card-third-place' : '');
         card.id = 'match-' + m.id; card.dataset.matchId = m.id;
         card.dataset.objectTable = 'matches'; card.dataset.objectId = m.id;
         card.dataset.nextId = isThirdPlace ? '' : (m.next_match_id || '');
+        card.setAttribute('role', 'group');
         const players = M.participants(m), winner = m.winner || {};
+        const hasWinner = Boolean(winner.id);
         const isSeries = Boolean(m.isSeries || m.series_score);
-        // 半决赛、决赛只记录系列比分时（无逐局赛果），结果标签直接给出比分。
-        const seriesOnly = Boolean(m.series_score) && (!m.result_detail || m.result_detail === '胜' || m.result_detail === `${m.series_score} 胜出`);
-        const result = winner.id ? (isSeries && m.series_score ? `${m.series_score} 胜出` : M.winnerLabel(m)) : M.matchResult(m);
+        const status = M.matchStatus(m);
+        const result = hasWinner ? (isSeries && m.series_score ? `${m.series_score} 胜出` : M.winnerLabel(m)) : M.matchResult(m);
         const fullDate = M.dateLabel(m.date);
-        const dateText = fullDate.replace(new RegExp('\\b' + allData[currentEditionId].edition.year + '-', 'g'), '');
+        const edition = allData[currentEditionId]?.edition;
+        const dateText = compactCardDate(fullDate, edition?.year);
         card.title = [m.tooltip, !isSeries && !m.black_player_id && !m.white_player_id ? '执色未载，按资料顺序显示' : '', result].filter(Boolean).join('\n');
         const row = (p, slot) => {
-          const won = M.samePlayer(winner, p);
+          const won = hasWinner && M.samePlayer(winner, p);
+          const lost = hasWinner && !won;
           let score = '';
           if (isSeries) {
             const numeric = /^(\d+)-(\d+)$/.exec(m.series_score || '');
@@ -1393,33 +1702,47 @@
             const lScore = m.loser_score ?? (numeric ? numeric[2] : '');
             if (m.player_scores) score = m.player_scores[slot];
             else if (won) score = wScore;
-            else if (winner.id) score = lScore;
+            else if (hasWinner) score = lScore;
           } else if (won) {
             score = M.winnerLabel(m);
           }
-          return `<div class="player-row ${won ? 'winner' : ''}" data-player-name="${esc(p.name_zh || '轮空 / 待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
+          const originBadge = originBadgeHtml(p, extra.originMap);
+          const dstBadge = dropDstBadgeHtml(m.id, p, extra.dropRefs);
+          const srcBadge = !score ? dropSrcBadgeHtml(m.id, p, won, isSeries, extra.dropRefs) : '';
+          return `<div class="player-row${won ? ' winner' : lost ? ' loser' : ''}" data-player-name="${esc(p.name_zh || '轮空 / 待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
             <div class="player-info">
-              ${p.id ? getFlagSvg(p.nationality) : ''}<span class="player-name">${esc(p.name_zh || '轮空 / 待定')}</span></div>
-            <span class="player-outcome">${esc(score ?? '')}</span>${stoneBox(m,p)}</div>`;
+              ${p.id ? getFlagSvg(p.nationality) : ''}<span class="player-name">${esc(p.name_zh || '轮空 / 待定')}</span>${originBadge}${dstBadge}</div>
+            <span class="player-outcome">${srcBadge || esc(score ?? '')}</span>${stoneBox(m,p)}</div>`;
         };
         // 决赛逐局卡片按顺序显示“第N局”；导入用的 SRC- 来源编号只用于溯源，不当标题。
         const matchCode = isThirdPlace ? '季军战'
           : gameNumber === null ? (m.draw_group || m.bracket_code || '对局' + (m.match_number || ''))
           : M.seriesGameLabel(m, gameNumber);
-        card.innerHTML = `<div class="match-top-bar"><span class="match-code">${esc(matchCode)}</span>
-          <span class="match-date" title="${esc(fullDate)}">${esc(dateText)}${M.dateConflictInEdition(m, allData[currentEditionId]) ? ' · 待核' : ''}</span></div>
+        const statusPill = !isSeries && !hasWinner && (status === 'no_result' || status === 'scheduled')
+          ? `<span class="match-status-pill">${esc(M.statusLabel(m))}</span>` : '';
+        const quickEdit = !isSeries ? window.GoViewerEditor.quick(m) : '';
+        const detailsBtn = !isSeries
+          ? '<button class="match-details-btn" type="button" aria-label="查看对局详情">详情</button>' : '';
+        card.innerHTML = `<div class="match-top-bar"><span class="match-code">${esc(matchCode)}</span>${statusPill}
+          <span class="match-date" title="${esc(fullDate)}">${esc(dateText)}${M.dateConflictInEdition(m, allData[currentEditionId]) ? ' · 待核' : ''}</span>${detailsBtn}</div>
           ${players.map(row).join('')}
-          ${isSeries ? `<div class="match-bottom-bar series-footer">${seriesMarks(m)}<span class="series-actions"></span></div>` :
-          `<div class="match-bottom-bar"><button class="result-badge match-details-btn" type="button">${esc(result)} · 详情</button>
-          ${window.GoViewerEditor.quick(m)}<span class="match-link-label">${isThirdPlace ? '季军战' : isFinalSubgame ? '决赛单局' : '单局'}</span></div>`}`;
+          ${isSeries ? `<div class="match-bottom-bar series-footer">${seriesMarks(m)}<span class="series-actions"></span></div>`
+            : quickEdit ? `<div class="match-bottom-bar match-edit-bar edit-only">${quickEdit}</div>` : ''}`;
         card.querySelectorAll('.player-row').forEach(el => {
           const name = el.dataset.playerName, id = el.dataset.playerId;
           el.onmouseenter = () => id && highlightPlayer(name);
-          el.onclick = event => {event.stopPropagation(); if (id) window.showPlayer(id);};
+          el.onclick = event => { if (id) { event.stopPropagation(); window.showPlayer(id); } };
           el.onkeydown = event => {if (event.key === 'Enter' || event.key === ' ') {event.preventDefault(); el.click();}};
         });
         const details = card.querySelector('.match-details-btn');
         if (details) details.onclick = event => {event.stopPropagation(); showMatchDetails(m, {singleGame: !!singleGame, gameNumber});};
+        if (!isSeries) {
+          card.onclick = event => {
+            if (document.body.classList.contains('edit-mode') || window.GoViewerEditor?.enabled?.()) return;
+            if (event.target.closest('button, select, a')) return;
+            showMatchDetails(m, {singleGame: !!singleGame, gameNumber});
+          };
+        }
         return card;
       }
 
@@ -1434,6 +1757,7 @@
         const vertical = currentOrientation === 'vertical';
         const meta = indexList.find(x => x.id === currentEditionId) || {};
         const {plan, roundsMatches, mainRounds, doubleLanes, doubleBlocks} = resolveKnockoutPlan(roundsView, data, opts);
+        const dropRefs = doubleLanes && !doubleBlocks ? buildDropRefMap(mainRounds, doubleLanes, currentEdges) : null;
         const byeCompact = Boolean(plan?.byeCompact);
         canvas.dataset.binaryTree = String(Boolean(plan));
         canvas.dataset.doubleElimination = String(Boolean(doubleLanes));
@@ -1461,7 +1785,7 @@
         })();
 
         const matchSize = vertical ? 188 : 58;
-        const gap = vertical ? 20 : 36;
+        const gap = vertical ? 20 : 30;
         const pitch = matchSize + gap;
         const startOffset = 8;
 
@@ -1624,7 +1948,7 @@
           const matches = roundsMatches[rIndex];
 
           const col = document.createElement("div");
-          col.className = `round-col ${isR1Compact ? 'wiki-col-r1-compact' : ''}`;
+          col.className = `round-col ${isR1Compact ? 'wiki-col-r1-compact' : ''}${isFinalRound ? ' wiki-col-finals' : ''}`;
           col.dataset.roundOrder = round.round_order;
           const finalSummary = isFinalRound ? M.finalSeries(round, data) : null;
           const horizontalFinal = Boolean(leagueMode && mainRounds.length === 1 && finalSummary && expandedSeries.has(seriesKey(finalSummary)));
@@ -1632,7 +1956,7 @@
 
           const cleanTitle = M.roundDisplayName(round) || `第${rIndex + 1}轮`;
 
-          const dateText = formatWikiDate(round.date_range || (round.matches[0] && round.matches[0].date) || '', cleanTitle);
+          const dateText = formatWikiDate(roundDateRangeText(round), cleanTitle);
           const venueText = (rIndex === 0 && data.edition && data.edition.notes && data.edition.notes.includes("举办")) ? '' : '';
 
           const stageStyle = vertical ? `width: ${totalStageExtent}px;` : `height: ${totalStageExtent}px;`;
@@ -1663,7 +1987,7 @@
               const mA = round.matches[2 * k];
               const mB = round.matches[2 * k + 1];
               const pos = positions[k] || { offset: startOffset + k * pitch };
-              stage.appendChild(createWikiR1BlockTable(mA, mB, pos.offset, k));
+              stage.appendChild(createWikiR1BlockTable(mA, mB, pos.offset, k, opts?.originMap));
             }
           } else if (is24Or48Compact && rIndex === 0) {
             const nextRoundMatches = roundsMatches[1] || [];
@@ -1709,11 +2033,12 @@
 
             blocksData.forEach(({ targetMatch, slots, blockIndex }) => {
               const pos = positions[blockIndex] || { offset: startOffset + blockIndex * pitch };
-              stage.appendChild(createWiki24Or48BlockTable(targetMatch, slots, pos.offset, blockIndex));
+              stage.appendChild(createWiki24Or48BlockTable(targetMatch, slots, pos.offset, blockIndex, opts?.originMap));
             });
           } else if (isFinalRound && M.finalSeries(round, data)) {
             const pos = positions[0] || { offset: totalStageExtent / 2 - matchSize / 2 };
-            stage.appendChild(placeNode(createWikiFinalsTable(round, meta, data, vertical ? 0 : pos.offset, horizontalFinal), pos.offset));
+            const finalExtra = {originMap: rIndex === 0 ? opts?.originMap : null, dropRefs};
+            stage.appendChild(placeNode(createWikiFinalsTable(round, meta, data, vertical ? 0 : pos.offset, horizontalFinal, finalExtra), pos.offset));
 
             // Standalone 3rd place box placed beside/underneath the finals without connecting lines
             if (thirdPlaceRound && thirdPlaceRound.matches && thirdPlaceRound.matches.length > 0) {
@@ -1728,9 +2053,14 @@
               stage.appendChild(box);
             }
           } else {
+            const nodeExtra = {originMap: rIndex === 0 ? opts?.originMap : null, dropRefs};
             matches.forEach((m, mIdx) => {
               const pos = positions[mIdx] || { offset: startOffset + mIdx * pitch };
-              const el = m.isSeries || m.series_score ? createSeriesNode(m, true, vertical ? 0 : pos.offset) : createWikiMatchTable(m, vertical ? 0 : pos.offset);
+              const el = m.isSeries || m.series_score
+                ? createSeriesNode(m, true, vertical ? 0 : pos.offset, false, nodeExtra)
+                : createWikiMatchTable(m, vertical ? 0 : pos.offset, nodeExtra);
+              const lane = doubleLanes?.[rIndex]?.[m.id] || '';
+              if (lane) el.dataset.doubleLane = lane;
               stage.appendChild(placeNode(el, pos.offset));
             });
           }
@@ -1802,7 +2132,18 @@
         });
       }
 
-      function createWiki24Or48BlockTable(targetMatch, slots, top, blockIndex) {
+      function bindWikiDetailsCells(root, selector, match, options = {}) {
+        if (!match) return;
+        root.querySelectorAll(selector).forEach(cell => {
+          cell.addEventListener('click', event => {
+            if (document.body.classList.contains('edit-mode') || window.GoViewerEditor?.enabled?.()) return;
+            event.stopPropagation();
+            showMatchDetails(match, options);
+          });
+        });
+      }
+
+      function createWiki24Or48BlockTable(targetMatch, slots, top, blockIndex, originMap = null) {
         const table = document.createElement("table");
         table.className = "wiki-match-table wiki-r1-block-table wiki-bye-table";
         table.id = `wiki-r1-bye-block-${blockIndex}`;
@@ -1836,12 +2177,12 @@
             return `
               <tr class="wiki-r1-row wiki-bye-match-row" data-match-id="${m.id}" id="wiki-match-${m.id}" data-next-id="${targetMatch.id}" data-object-table="matches" data-object-id="${m.id}">
                 <td class="wiki-r1-player wiki-col-p1 ${isDecided ? 'winner' : ''}" data-player-name="${esc(advName)}" data-player-id="${esc(advancing.id || '')}">
-                  ${getFlagSvg(advNat)}<span class="wiki-pname">${esc(advName)}</span>
+                  ${getFlagSvg(advNat)}<span class="wiki-pname">${esc(advName)}</span>${originBadgeHtml(advancing, originMap)}
                 </td>
                 ${advStoneTd}
                 <td class="wiki-r1-score wiki-col-res ${isDecided ? 'winner-score' : ''}" title="${esc(resultRaw)}">${esc(resultText)}</td>
                 <td class="wiki-r1-player wiki-col-p2 wiki-r1-opponent" data-player-name="${esc(oppName)}" data-player-id="${esc(opponent.id || '')}">
-                  ${getFlagSvg(oppNat)}<span class="wiki-pname">${esc(oppName)}</span>
+                  ${getFlagSvg(oppNat)}<span class="wiki-pname">${esc(oppName)}</span>${originBadgeHtml(opponent, originMap)}
                 </td>
                 ${oppStoneTd}
               </tr>
@@ -1875,7 +2216,7 @@
           }
         }
 
-        table.innerHTML = '<colgroup><col style="width:147px"><col style="width:25px"><col style="width:76px"><col style="width:147px"><col style="width:25px"></colgroup>' + renderSlotRow(slots[0]) + renderSlotRow(slots[1]);
+        table.innerHTML = '<colgroup><col style="width:145px"><col style="width:25px"><col style="width:80px"><col style="width:145px"><col style="width:25px"></colgroup>' + renderSlotRow(slots[0]) + renderSlotRow(slots[1]);
 
         if (blockMatches.length > 0) {
           const caption = document.createElement('caption');
@@ -1904,11 +2245,16 @@
             });
           }
         });
+        slots.forEach(slot => {
+          if (!slot.match) return;
+          const row = table.querySelector(`tr[data-match-id="${CSS.escape(slot.match.id)}"]`);
+          if (row) bindWikiDetailsCells(row, '.wiki-r1-score, .wiki-stone-cell', slot.match);
+        });
 
         return table;
       }
 
-      function createWikiR1BlockTable(mA, mB, top, blockIndex) {
+      function createWikiR1BlockTable(mA, mB, top, blockIndex, originMap = null) {
         const table = document.createElement("table");
         table.className = "wiki-r1-block-table";
         table.id = `wiki-r1-block-${blockIndex}`;
@@ -1944,21 +2290,21 @@
           return `
             <tr class="wiki-r1-row" data-match-id="${m.id}" id="wiki-match-${m.id}" data-next-id="${m.next_match_id || ''}" data-object-table="matches" data-object-id="${m.id}">
               <td class="wiki-r1-player wiki-col-p1 ${isDecided ? 'winner' : ''}" data-player-name="${esc(advName)}" data-player-id="${esc(adv.id || '')}">
-                ${getFlagSvg(advNat)}<span class="wiki-pname">${esc(advName)}</span>
+                ${getFlagSvg(advNat)}<span class="wiki-pname">${esc(advName)}</span>${originBadgeHtml(adv, originMap)}
               </td>
               ${advStoneTd}
               <td class="wiki-r1-score wiki-col-res ${isDecided ? 'winner-score' : ''}" title="${esc(resultRaw)}">
                 ${esc(resultText)}
               </td>
               <td class="wiki-r1-player wiki-col-p2 wiki-r1-opponent" data-player-name="${esc(oppName)}" data-player-id="${esc(opp.id || '')}">
-                ${getFlagSvg(oppNat)}<span class="wiki-pname">${esc(oppName)}</span>
+                ${getFlagSvg(oppNat)}<span class="wiki-pname">${esc(oppName)}</span>${originBadgeHtml(opp, originMap)}
               </td>
               ${oppStoneTd}
             </tr>
           `;
         }
 
-        table.innerHTML = '<colgroup><col style="width:147px"><col style="width:25px"><col style="width:76px"><col style="width:147px"><col style="width:25px"></colgroup>' + renderRow(mA) + renderRow(mB);
+        table.innerHTML = '<colgroup><col style="width:145px"><col style="width:25px"><col style="width:80px"><col style="width:145px"><col style="width:25px"></colgroup>' + renderRow(mA) + renderRow(mB);
         const caption = document.createElement('caption');
         caption.className = 'wiki-details-caption';
         [mA, mB].forEach((m, i) => {
@@ -1981,6 +2327,11 @@
               window.showPlayer(cell.dataset.playerId || pName);
             });
           }
+        });
+        [mA, mB].forEach(m => {
+          if (!m) return;
+          const row = table.querySelector(`tr[data-match-id="${CSS.escape(m.id)}"]`);
+          if (row) bindWikiDetailsCells(row, '.wiki-r1-score, .wiki-stone-cell', m);
         });
 
         if (table.dataset.matchId) addDetailsButton(table, mForDetails(table.dataset.matchId));
@@ -2025,14 +2376,22 @@
           p2Score = isP2Win ? M.winnerLabel(m) : '';
         }
 
+        const p1Origin = originBadgeHtml(p1, detailOptions.originMap);
+        const p2Origin = originBadgeHtml(p2, detailOptions.originMap);
+        const p1Dst = dropDstBadgeHtml(m.id, p1, detailOptions.dropRefs);
+        const p2Dst = dropDstBadgeHtml(m.id, p2, detailOptions.dropRefs);
+        const p1Src = !p1Score ? dropSrcBadgeHtml(m.id, p1, isP1Win, isSeries, detailOptions.dropRefs) : '';
+        const p2Src = !p2Score ? dropSrcBadgeHtml(m.id, p2, isP2Win, isSeries, detailOptions.dropRefs) : '';
+        const showOpts = {singleGame: Boolean(detailOptions.singleGame)};
+
         table.innerHTML = `
           <tr class="wiki-player-row ${isP1Win ? 'winner' : ''}" data-player-name="${esc(p1Name)}" data-player-id="${esc(p1.id || '')}">
-            <td class="wiki-name-td">${p1.id ? getFlagSvg(p1Nat) : ''}<span class="wiki-pname">${esc(p1Name)}</span></td>
-            <td class="wiki-score-td ${isP1Win ? 'winner-score' : ''}" title="${esc(M.matchResult(m))}">${esc(p1Score)}</td>${stoneBox(m,p1,'td')}
+            <td class="wiki-name-td">${p1.id ? getFlagSvg(p1Nat) : ''}<span class="wiki-pname">${esc(p1Name)}</span>${p1Origin}${p1Dst}</td>
+            <td class="wiki-score-td ${isP1Win ? 'winner-score' : ''}" title="${esc(M.matchResult(m))}">${p1Src || esc(p1Score)}</td>${stoneBox(m,p1,'td')}
           </tr>
           <tr class="wiki-player-row ${isP2Win ? 'winner' : ''}" data-player-name="${esc(p2Name)}" data-player-id="${esc(p2.id || '')}">
-            <td class="wiki-name-td">${p2.id ? getFlagSvg(p2Nat) : ''}<span class="wiki-pname">${esc(p2Name)}</span></td>
-            <td class="wiki-score-td ${isP2Win ? 'winner-score' : ''}" title="${esc(M.matchResult(m))}">${esc(p2Score)}</td>${stoneBox(m,p2,'td')}
+            <td class="wiki-name-td">${p2.id ? getFlagSvg(p2Nat) : ''}<span class="wiki-pname">${esc(p2Name)}</span>${p2Origin}${p2Dst}</td>
+            <td class="wiki-score-td ${isP2Win ? 'winner-score' : ''}" title="${esc(M.matchResult(m))}">${p2Src || esc(p2Score)}</td>${stoneBox(m,p2,'td')}
           </tr>
         `;
 
@@ -2040,18 +2399,22 @@
           const pName = row.dataset.playerName;
           if (pName && !pName.includes("轮空")) {
             row.addEventListener("mouseenter", () => highlightPlayer(pName));
-            row.addEventListener("click", (e) => {
-              e.stopPropagation();
-              if (row.dataset.playerId) window.showPlayer(row.dataset.playerId);
-            });
+            const nameCell = row.querySelector('.wiki-name-td');
+            if (nameCell) {
+              nameCell.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (row.dataset.playerId) window.showPlayer(row.dataset.playerId);
+              });
+            }
           }
         });
+        bindWikiDetailsCells(table, '.wiki-score-td, .wiki-stone-cell', m, showOpts);
 
         if (isSeries) {
           const row = table.insertRow(); row.className = 'series-footer';
           const cell = row.insertCell(); cell.colSpan = 2;
           cell.innerHTML = `<div class="series-footer-content">${seriesMarks(m)}<span class="series-actions"></span></div>`;
-        } else if (table.dataset.matchId) addDetailsButton(table, m, detailOptions);
+        } else if (table.dataset.matchId) addDetailsButton(table, m, showOpts);
         return table;
       }
 
@@ -2096,23 +2459,67 @@
           const pName = row.dataset.playerName;
           if (pName && !pName.includes("轮空")) {
             row.addEventListener("mouseenter", () => highlightPlayer(pName));
-            row.addEventListener("click", (e) => {
-              e.stopPropagation();
-              if (row.dataset.playerId) window.showPlayer(row.dataset.playerId);
-            });
+            const nameCell = row.querySelector('.wiki-name-td');
+            if (nameCell) {
+              nameCell.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (row.dataset.playerId) window.showPlayer(row.dataset.playerId);
+              });
+            }
           }
         });
+        bindWikiDetailsCells(container, '.wiki-score-td, .wiki-stone-cell', m);
 
         const thirdTable = container.querySelector('table');
         addDetailsButton(thirdTable, m);
         return container;
       }
 
-      function createWikiFinalsTable(round, meta, data, top, horizontal = false) {
+      function createWikiFinalsTable(round, meta, data, top, horizontal = false, extra = {}) {
         const summary = M.finalSeries(round, data);
-        if (!summary) return createWikiMatchTable(round.matches[0], top);
-        return summary.isSeries || summary.series_score
-          ? createSeriesNode(summary, true, top, horizontal) : createWikiMatchTable(summary, top);
+        const champ = data.champion?.id ? data.champion : null;
+        if (!summary) {
+          const table = createWikiMatchTable(round.matches[0], top, extra);
+          if (!champ) return table;
+          const wrap = document.createElement('div');
+          wrap.className = 'series-node wiki-finals-node';
+          wrap.style.top = top + 'px';
+          table.style.top = '0px';
+          wrap.append(table);
+          const champEl = document.createElement('div');
+          champEl.className = 'finals-champion wiki-finals-champion';
+          champEl.dataset.playerId = champ.id;
+          champEl.dataset.playerName = champ.name_zh;
+          champEl.innerHTML = `${champ.nationality ? getFlagSvg(champ.nationality) : ''}<span class="finals-champion-name">${esc(champ.name_zh)}</span><span class="finals-champion-label">冠军</span>`;
+          champEl.onclick = event => { event.stopPropagation(); window.showPlayer(champ.id); };
+          wrap.append(champEl);
+          return wrap;
+        }
+        const isSeries = Boolean(summary.isSeries || summary.series_score);
+        const node = isSeries ? createSeriesNode(summary, true, top, horizontal, extra) : (() => {
+          const wrap = document.createElement('div');
+          wrap.className = 'series-node';
+          wrap.style.top = top + 'px';
+          const table = createWikiMatchTable(summary, 0, extra);
+          wrap.append(table);
+          return wrap;
+        })();
+        node.classList.add('wiki-finals-node');
+        if (champ) {
+          const champEl = document.createElement('div');
+          champEl.className = 'finals-champion wiki-finals-champion';
+          champEl.dataset.playerId = champ.id;
+          champEl.dataset.playerName = champ.name_zh;
+          champEl.setAttribute('role', 'button');
+          champEl.setAttribute('tabindex', '0');
+          champEl.innerHTML = `${champ.nationality ? getFlagSvg(champ.nationality) : ''}<span class="finals-champion-name">${esc(champ.name_zh)}</span><span class="finals-champion-label">冠军</span>`;
+          champEl.onclick = event => { event.stopPropagation(); window.showPlayer(champ.id); };
+          champEl.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); champEl.click(); } };
+          const list = node.querySelector(':scope > .series-games');
+          if (list) node.insertBefore(champEl, list);
+          else node.append(champEl);
+        }
+        return node;
       }
 
       // ----------------------------------------------------
@@ -2441,6 +2848,47 @@
         });
       }
 
+      function syncDoubleLaneDivider() {
+        canvas.querySelectorAll('.double-lane-divider').forEach(el => el.remove());
+        if (canvas.dataset.doubleElimination !== 'true') return;
+        const winners = [...canvas.querySelectorAll('[data-double-lane="winner"]')];
+        const losers = [...canvas.querySelectorAll('[data-double-lane="loser"]')];
+        if (!winners.length || !losers.length) return;
+        const stages = [...canvas.querySelectorAll('.modern-stage, .wiki-matches-stage')];
+        if (!stages.length) return;
+        const vertical = currentOrientation === 'vertical';
+        const canvasRect = canvas.getBoundingClientRect();
+        const actualZoom = canvasRect.width / Math.max(1, canvas.offsetWidth) || zoomLevel || 1;
+        const coord = (rect, key) => (rect[key] - (key === 'left' || key === 'right' ? canvasRect.left : canvasRect.top)) / actualZoom;
+        const divider = document.createElement('div');
+        divider.setAttribute('aria-hidden', 'true');
+        if (vertical) {
+          const wMax = Math.max(...winners.map(el => coord(connectorAnchor(el), 'right')));
+          const lMin = Math.min(...losers.map(el => coord(connectorAnchor(el), 'left')));
+          if (!(lMin > wMax + 12)) return;
+          const x = (wMax + lMin) / 2;
+          const y0 = Math.min(...stages.map(s => coord(s.getBoundingClientRect(), 'top')));
+          const y1 = Math.max(...stages.map(s => coord(s.getBoundingClientRect(), 'bottom')));
+          divider.className = 'double-lane-divider is-vertical';
+          divider.style.left = `${x.toFixed(1)}px`;
+          divider.style.top = `${y0.toFixed(1)}px`;
+          divider.style.height = `${Math.max(120, y1 - y0).toFixed(1)}px`;
+        } else {
+          const wMax = Math.max(...winners.map(el => coord(connectorAnchor(el), 'bottom')));
+          const lMin = Math.min(...losers.map(el => coord(connectorAnchor(el), 'top')));
+          if (!(lMin > wMax + 12)) return;
+          const y = (wMax + lMin) / 2;
+          const x0 = Math.min(...stages.map(s => coord(s.getBoundingClientRect(), 'left')));
+          const x1 = Math.max(...stages.map(s => coord(s.getBoundingClientRect(), 'right')));
+          divider.className = 'double-lane-divider is-horizontal';
+          divider.style.left = `${x0.toFixed(1)}px`;
+          divider.style.top = `${y.toFixed(1)}px`;
+          divider.style.width = `${Math.max(120, x1 - x0).toFixed(1)}px`;
+        }
+        divider.innerHTML = '<span class="double-lane-label is-winner">胜者组</span><span class="double-lane-label is-loser">败者组</span>';
+        canvas.appendChild(divider);
+      }
+
       // Draw SVG Connectors (Dispatches to Modern, Wiki, or Draw Board)
       function drawConnectors() {
         if (currentViewMode === "draw") {
@@ -2450,6 +2898,8 @@
         } else {
           drawModernConnectors();
         }
+        syncDoubleLaneDivider();
+        if (activeGroupDouble) window.GoViewerGroupDouble?.drawConnectors?.(canvas, activeGroupDouble);
       }
 
       // Confirmed binary trees use right-angle forks in both presentations.
@@ -2471,6 +2921,49 @@
         }
         return { left: r.left, right: r.right, top: r.top, height: r.height, width: r.width, bottom: r.bottom };
       }
+      function roundedOrthogonalPath(rawPoints, radius = 4) {
+        const points = [];
+        for (const pt of rawPoints) {
+          if (!points.length || Math.hypot(pt[0] - points[points.length - 1][0], pt[1] - points[points.length - 1][1]) >= 0.5) {
+            points.push(pt);
+          }
+        }
+        const simplified = [];
+        for (const pt of points) {
+          while (simplified.length >= 2) {
+            const a = simplified[simplified.length - 2], b = simplified[simplified.length - 1];
+            const sameX = Math.abs(a[0] - b[0]) < 0.5 && Math.abs(b[0] - pt[0]) < 0.5;
+            const sameY = Math.abs(a[1] - b[1]) < 0.5 && Math.abs(b[1] - pt[1]) < 0.5;
+            if (sameX || sameY) simplified.pop();
+            else break;
+          }
+          simplified.push(pt);
+        }
+        if (simplified.length < 2) return '';
+        if (simplified.length === 2 || radius <= 0) {
+          return simplified.map(([x, y], i) => `${i ? 'L' : 'M'} ${x} ${y}`).join(' ');
+        }
+        const parts = [`M ${simplified[0][0]} ${simplified[0][1]}`];
+        for (let i = 1; i < simplified.length - 1; i++) {
+          const prev = simplified[i - 1], curr = simplified[i], next = simplified[i + 1];
+          const dx1 = curr[0] - prev[0], dy1 = curr[1] - prev[1];
+          const dx2 = next[0] - curr[0], dy2 = next[1] - curr[1];
+          const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
+          if (len1 < 8 || len2 < 8) {
+            parts.push(`L ${curr[0]} ${curr[1]}`);
+            continue;
+          }
+          const r = Math.min(radius, len1 / 2, len2 / 2);
+          const xBefore = curr[0] - (dx1 / len1) * r;
+          const yBefore = curr[1] - (dy1 / len1) * r;
+          const xAfter = curr[0] + (dx2 / len2) * r;
+          const yAfter = curr[1] + (dy2 / len2) * r;
+          parts.push(`L ${xBefore} ${yBefore} Q ${curr[0]} ${curr[1]} ${xAfter} ${yAfter}`);
+        }
+        const last = simplified[simplified.length - 1];
+        parts.push(`L ${last[0]} ${last[1]}`);
+        return parts.join(' ');
+      }
       function drawVerifiedConnectors(wiki) {
         svg.innerHTML = '';
         const vertical = currentOrientation === 'vertical';
@@ -2484,8 +2977,18 @@
           ? [...canvas.querySelectorAll('.modern-stage > *, .wiki-matches-stage > *')]
             .filter(el => !el.classList.contains('third-place-container') && !el.classList.contains('wiki-third-place-box'))
           : [];
-        const appendConnector = (path, edge) => {
-          path.setAttribute('class', 'connector-path' + (edge.kind === 'loser' ? ' connector-loser' : edge.kind === 'scheduled' ? ' connector-scheduled' : ''));
+        const editionData = allData[currentEditionId];
+        const champion = canvas.dataset.prelimTree === 'true' ? null : (editionData?.champion?.id ? editionData.champion : null);
+        const champSelector = champion?.id ? `[data-player-id="${CSS.escape(champion.id)}"]` : '';
+        const isChampionEdge = (edge, source, target) => Boolean(
+          champion?.id && edge.player && edge.player === champion.name_zh
+          && (source.querySelector(champSelector) || source.dataset.playerId === champion.id)
+          && (target.querySelector(champSelector) || target.dataset.playerId === champion.id)
+        );
+        const appendConnector = (path, edge, isChampion = false) => {
+          path.setAttribute('class', 'connector-path'
+            + (edge.kind === 'loser' ? ' connector-loser' : edge.kind === 'scheduled' ? ' connector-scheduled' : '')
+            + (isChampion ? ' connector-champion' : ''));
           path.dataset.sourceId = edge.sourceId; path.dataset.sourceIds = edge.sourceId;
           path.dataset.targetId = edge.targetId; path.dataset.playerName = edge.player;
           svg.appendChild(path);
@@ -2495,8 +2998,15 @@
         for (const edge of currentEdges) {
           const source = document.getElementById(prefix + edge.sourceId);
           const target = document.getElementById(prefix + edge.targetId);
-          if (source && target) plans.push({edge, source, target, a: connectorAnchor(source), b: connectorAnchor(target)});
+          if (source && target) {
+            plans.push({
+              edge, source, target,
+              a: connectorAnchor(source), b: connectorAnchor(target),
+              isChampion: isChampionEdge(edge, source, target)
+            });
+          }
         }
+        plans.sort((x, y) => Number(x.isChampion) - Number(y.isChampion));
         // Routes entering the same game share a fork. Distinct forks can use
         // separate tracks, while overlapping loser strokes share a dash phase.
         const clearRoute = (plan, points) => points.slice(1).every((p, i) => {
@@ -2582,11 +3092,11 @@
                 const segment = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 segment.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
                 segment.style.strokeDashoffset = `${x1 === x2 ? y1 : x1}px`;
-                appendConnector(segment, edge);
+                appendConnector(segment, edge, plan.isChampion);
               }
               continue;
             }
-            path.setAttribute('d', points.map(([u,v], i) => `${i ? 'L' : 'M'} ${vertical ? v : u} ${vertical ? u : v}`).join(' '));
+            path.setAttribute('d', roundedOrthogonalPath(points.map(([u,v]) => vertical ? [v, u] : [u, v]), 4));
           } else if (vertical) {
             const x1 = (a.left + a.width / 2 - canvasRect.left) / actualZoom;
             const y1 = (a.bottom - canvasRect.top) / actualZoom;
@@ -2594,7 +3104,7 @@
             const y2 = (b.top - canvasRect.top) / actualZoom;
             const mid = (y1 + y2) / 2;
             path.setAttribute('d', Math.abs(x2 - x1) < 0.75 ? `M ${x1} ${y1} V ${y2}` :
-              wiki || canvas.dataset.binaryTree === 'true' ? `M ${x1} ${y1} V ${mid} H ${x2} V ${y2}` :
+              wiki || canvas.dataset.binaryTree === 'true' ? roundedOrthogonalPath([[x1, y1], [x1, mid], [x2, mid], [x2, y2]], 4) :
               `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`);
           } else {
             const x1 = (a.right - canvasRect.left) / actualZoom;
@@ -2604,10 +3114,10 @@
             const mid = (x1 + x2) / 2;
             // 单线接力的两端对齐后直接横连，不再画一段无意义的台阶。
             path.setAttribute('d', Math.abs(y2 - y1) < 0.75 ? `M ${x1} ${y1} H ${x2}` :
-              wiki || canvas.dataset.binaryTree === 'true' ? `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}` :
+              wiki || canvas.dataset.binaryTree === 'true' ? roundedOrthogonalPath([[x1, y1], [mid, y1], [mid, y2], [x2, y2]], 4) :
               `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);
           }
-          appendConnector(path, edge);
+          appendConnector(path, edge, plan.isChampion);
         }
       }
 
@@ -2621,6 +3131,10 @@
           clearBtn.textContent = `${playerName} ×`;
           clearBtn.setAttribute('aria-label', `清除 ${playerName} 的高亮`);
         }
+        const statusBar = document.getElementById('highlightStatusBar');
+        const statusText = document.getElementById('highlightStatusText');
+        if (statusText) statusText.textContent = `正在追踪：${playerName}`;
+        if (statusBar) statusBar.hidden = false;
 
         if (currentViewMode === "draw") {
           highlightDrawPlayer(playerName);
@@ -2629,6 +3143,7 @@
         } else {
           highlightModernPlayer(playerName);
         }
+        if (activeGroupDouble) window.GoViewerGroupDouble?.highlightPlayer?.(canvas, playerName);
       }
 
       function highlightDrawPlayer(playerName) {
@@ -2657,7 +3172,7 @@
       }
 
       function highlightModernPlayer(playerName) {
-        const allCards = canvas.querySelectorAll(".match-card");
+        const allCards = canvas.querySelectorAll(".match-card, .finals-container");
         allCards.forEach(card => {
           const hasPlayer = card.querySelector(`[data-player-name="${CSS.escape(playerName)}"]`);
           if (hasPlayer) {
@@ -2727,6 +3242,10 @@
           clearBtn.textContent = '清除高亮';
           clearBtn.setAttribute('aria-label', '清除棋手高亮');
         }
+        const statusBar = document.getElementById('highlightStatusBar');
+        const statusText = document.getElementById('highlightStatusText');
+        if (statusBar) statusBar.hidden = true;
+        if (statusText) statusText.textContent = '';
         if (currentViewMode === "draw") {
           clearDrawHighlight();
         } else if (currentViewMode === "wiki") {
@@ -2734,10 +3253,11 @@
         } else {
           clearModernHighlight();
         }
+        window.GoViewerGroupDouble?.clearHighlight?.(canvas);
       }
 
       function clearModernHighlight() {
-        canvas.querySelectorAll(".match-card").forEach(c => {
+        canvas.querySelectorAll(".match-card, .finals-container").forEach(c => {
           c.classList.remove("highlight", "dimmed");
         });
         svg.querySelectorAll(".connector-path").forEach(p => {
@@ -2987,11 +3507,21 @@ window.showPlayer = function(playerNameOrId) {
           editionInfo.setAttribute('aria-expanded', String(open));
         };
         document.getElementById('workspaceMore').addEventListener('click', event => {
-          if (event.target.closest('[data-mode], [data-orient], #btnExportBracket, #btnPrevEd, #btnNextEd, #toggleEditionInfo')) {
+          if (event.target.closest('[data-mode], [data-orient], #btnChampionPath, #btnExportBracket, #btnPrevEd, #btnNextEd, #toggleEditionInfo')) {
             more.setAttribute('aria-expanded', 'false');
             if (mobileCatalogMedia.matches && document.activeElement !== more) more.focus();
           }
         });
+        const btnChampionPath = document.getElementById('btnChampionPath');
+        if (btnChampionPath) {
+          applyChampionPath(championPathEnabled, {persist: false});
+          btnChampionPath.onclick = () => applyChampionPath(!championPathEnabled, {persist: true});
+        }
+        const btnToggleLoserLines = document.getElementById('btnToggleLoserLines');
+        if (btnToggleLoserLines) {
+          applyLoserLinesPref(showLoserLines, {persist: false});
+          btnToggleLoserLines.onclick = () => applyLoserLinesPref(!showLoserLines, {persist: true});
+        }
         // Scope Switcher: 正赛 / 预选赛
         const scopeGroup = document.getElementById('scopeToggleGroup');
         if (scopeGroup) {
@@ -3099,12 +3629,18 @@ window.showPlayer = function(playerNameOrId) {
           document.getElementById('btnNavToggle')?.setAttribute('aria-expanded', 'false');
         });
         document.getElementById('crumbHome')?.addEventListener('click', () => {
+          if (window.GoViewerSidebar?.isCollapsed?.() && !mobileCatalogMedia.matches) {
+            window.GoViewerSidebar.setCollapsed(false);
+          }
           catalog?.openHome?.();
           const list = document.getElementById('editionList');
           if (list) list.scrollTop = 0;
         });
         document.getElementById('currentTournamentLabel')?.addEventListener('click', () => {
           if (window.GoViewerEditor?.enabled?.()) return;
+          if (window.GoViewerSidebar?.isCollapsed?.() && !mobileCatalogMedia.matches) {
+            window.GoViewerSidebar.setCollapsed(false);
+          }
           const tid = allData[currentEditionId]?.tournament?.id || currentTournamentId;
           if (tid) catalog?.openTournament?.(tid, currentEditionId);
         });
@@ -3331,6 +3867,11 @@ window.showPlayer = function(playerNameOrId) {
 
         // Clear Highlight
         document.getElementById("btnHighlightClear").onclick = clearHighlight;
+        document.getElementById("btnHighlightStatusClear")?.addEventListener('click', clearHighlight);
+        window.addEventListener('go:numbering-decorated', event => {
+          const root = event.detail?.root;
+          if (!root || root === document || root === canvas) renderRoundNav();
+        });
 
         // Compact Banner Toggle (FE-3 & UX-2 persistence)
         const BANNER_COMPACT_KEY = 'go_banner_compact_v1';
@@ -3362,7 +3903,16 @@ window.showPlayer = function(playerNameOrId) {
         // Window resize & dynamic layout/numbering redraw connectors
         window.addEventListener('resize', requestDraw);
         window.addEventListener('go:numbering-decorated', requestDraw);
-        window.addEventListener('go:edit-mode-changed', requestDraw);
+        window.addEventListener('go:sidebar-toggled', () => {
+          if (allData[currentEditionId]) {
+            frameCurrentView();
+            requestDraw();
+          }
+        });
+        window.addEventListener('go:edit-mode-changed', () => {
+          if (allData[currentEditionId] && currentViewMode === 'modern') renderCurrentBracket(allData[currentEditionId]);
+          requestDraw();
+        });
         document.fonts?.ready?.then(() => {
           if (allData[currentEditionId]) requestDraw();
         });
@@ -3528,6 +4078,10 @@ window.showPlayer = function(playerNameOrId) {
         }, {passive: true});
       }
 
+      window.GoViewerBracketOrientation = {
+        get: () => currentOrientation,
+        setTemporary: orient => applyOrientation(orient, {persist: false, skipUrlSync: true, skipFrame: true})
+      };
       window.getBracketExportContext = function() {
         const data = allData[currentEditionId], meta = indexList.find(e => e.id === currentEditionId);
         if (!data || !meta) return null;
@@ -3566,7 +4120,8 @@ window.showPlayer = function(playerNameOrId) {
               : M.roundsForView(data).mainRounds;
             const groups = window.GoViewerLeague.partition(data, rounds).groups;
             return groups.length ? {data, groups, scope: currentScope} : null;
-          })()};
+          })(),
+          groupDouble: activeGroupDouble ? {title: activeGroupDouble.title} : null};
       };
       window.prepareBracketExport = function() {
         canvas.querySelectorAll('.is-player-active').forEach(el => el.classList.remove('is-player-active'));
