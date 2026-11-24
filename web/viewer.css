@@ -7878,6 +7878,10 @@ body.export-capture #canvas .group-double-section {
   max-width: none !important;
 }
 
+body.export-capture #canvas .group-double-title-group {
+  flex-wrap: nowrap !important;
+}
+
 body.export-capture #canvas .gsl-grid {
   grid-template-columns: repeat(4, 28.5rem) !important;
 }

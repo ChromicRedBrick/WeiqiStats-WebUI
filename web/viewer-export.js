@@ -163,12 +163,38 @@
       Object.assign(copy.style, {width: 'auto', flex: '1 1 auto', minWidth: '0', maxWidth: 'none'});
     } else if (source.matches('.finals-champion-label, .origin-group-badge, .drop-ref-badge, .group-double-kicker, .group-double-title, .group-double-meta, .gsl-group-badge, .gsl-adv-tag, .gsl-win-tag, .gsl-qual-chip, .gsl-seed-mark, .double-lane-label, .stage-bridge-label')) {
       Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
+    } else if (source.matches('.group-double-header')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', minHeight: '0', maxHeight: 'none'});
+    } else if (source.matches('.group-double-title-group')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', flexWrap: 'nowrap'});
     } else if (source.matches('.gsl-qualifiers')) {
       Object.assign(copy.style, {width: 'auto', height: 'auto', maxWidth: 'none'});
+    } else if (source.matches('.gsl-extra-btn')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
     } else if (source.matches('.gsl-qual-name, .gsl-match-label, .gsl-match-res')) {
       Object.assign(copy.style, {width: 'auto', whiteSpace: 'nowrap'});
     } else if (source.matches('.wiki-pname, .player-name, .player-outcome, .match-date, .match-code, .finals-badge-title, .finals-score, .series-game-result, .series-game-date, .series-game-num, .wiki-date-label, .gsl-player-name')) {
       copy.style.width = 'auto';
+    }
+    if (source.matches('.stage-bridge')) {
+      const makeBridgeLine = pseudo => {
+        const ps = getComputedStyle(source, pseudo);
+        if (!ps || ps.content === 'none' || ps.display === 'none') return null;
+        const line = document.createElement('span');
+        line.setAttribute('aria-hidden', 'true');
+        Object.assign(line.style, {
+          display: 'block',
+          flex: '1 1 auto',
+          height: ps.height || '1px',
+          minWidth: '0',
+          borderTop: `${ps.borderTopWidth} ${ps.borderTopStyle} ${ps.borderTopColor}`,
+        });
+        return line;
+      };
+      const beforeLine = makeBridgeLine('::before');
+      const afterLine = makeBridgeLine('::after');
+      if (beforeLine) copy.insertBefore(beforeLine, copy.firstChild);
+      if (afterLine) copy.appendChild(afterLine);
     }
     if (source.tagName === 'TABLE') copy.style.removeProperty('height');
     if (source.matches('.team-table-scroll, .league-table-scroll')) Object.assign(copy.style, {height: 'auto', maxHeight: 'none', maxWidth: 'none', overflow: 'visible'});
