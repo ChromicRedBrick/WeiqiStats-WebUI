@@ -6578,17 +6578,76 @@ tr.batch-row-dirty {
 .export-capture #canvas .player-row,
 .export-capture #canvas .wiki-player-row,
 .export-capture #canvas .wiki-r1-player,
-.export-capture #canvas .gsl-player-row,
-.export-capture #canvas .gsl-qual-chip {
+.export-capture #canvas .gsl-player-row {
   background: transparent !important;
   opacity: 1 !important;
 }
 
-.export-capture #canvas .gsl-match {
+.export-capture #canvas .gsl-player-row.is-winner {
+  background: var(--gsl-winner-bg-modern) !important;
+}
+
+.export-capture #canvas .gsl-player-row.is-loser {
+  background: var(--bg-primary) !important;
+}
+
+.export-capture #canvas .gsl-player-row .gsl-player-name {
+  color: var(--text-secondary) !important;
+}
+
+.export-capture #canvas .gsl-player-row.is-winner .gsl-player-name {
+  color: var(--text-main) !important;
+}
+
+.export-capture #canvas .gsl-player-row.is-loser .gsl-player-name {
+  color: var(--text-muted) !important;
+}
+
+.export-capture #canvas .gsl-qual-chip {
   border-color: var(--border-color) !important;
-  background: var(--bg-secondary) !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-main) !important;
+  opacity: 1 !important;
+}
+
+body[data-view-mode="wiki"].export-capture #canvas .gsl-qual-chip {
+  border-color: var(--border-light) !important;
+  background: var(--canvas-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.export-capture #canvas .gsl-match {
+  border-top-color: var(--border-color) !important;
+  border-right-color: var(--border-color) !important;
+  border-bottom-color: var(--border-color) !important;
+  background: var(--bg-primary) !important;
   box-shadow: none !important;
   opacity: 1 !important;
+}
+
+.export-capture #canvas .gsl-match:not(.gsl-match--win):not(.gsl-match--lose):not(.gsl-match--decider) {
+  border-left-color: var(--border-color) !important;
+}
+
+body[data-view-mode="wiki"].export-capture #canvas .gsl-match {
+  border-color: var(--border-light) !important;
+  background: var(--canvas-bg) !important;
+}
+
+body[data-view-mode="wiki"].export-capture #canvas .gsl-player-row.is-winner {
+  background: var(--gsl-winner-bg) !important;
+}
+
+body[data-view-mode="wiki"].export-capture #canvas .gsl-player-row.is-winner .gsl-player-meta {
+  background: var(--gsl-winner-bg) !important;
+}
+
+body[data-view-mode="wiki"].export-capture #canvas .gsl-player-row.is-loser {
+  background: var(--canvas-bg) !important;
+}
+
+body[data-view-mode="wiki"].export-capture #canvas .gsl-player-row.is-loser .gsl-player-meta {
+  background: var(--canvas-bg) !important;
 }
 
 .export-capture #canvas .round-header {
@@ -7522,13 +7581,27 @@ html.standalone-document { height: auto; min-height: 100%; overflow: auto; }
 
 body[data-spoiler="hidden"] :is(.wiki-score-td, .wiki-r1-score, .player-outcome, .match-status-pill, .series-outcomes,
   .series-game-winner, .series-game-result, .finals-score, .finals-champion, .draw-winner-result,
-  .gsl-match-res, .gsl-adv-tag, .gsl-qualifiers, .gsl-card-extras,
+  .gsl-match-res, .gsl-adv-tag, .gsl-win-tag, .gsl-qualifiers, .gsl-card-extras,
   #matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"]),
   .player-games-result, .podium-name, .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally,
   .career-matrix td, .recent-form-dots):not(.spoiler-revealed, .spoiler-revealed *) {
   filter: blur(7px);
   cursor: pointer;
   user-select: none;
+}
+
+body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-winner {
+  background: transparent;
+  box-shadow: none;
+}
+
+body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-winner .gsl-player-name {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-loser :is(.country-flag, .stone-icon) {
+  opacity: 1;
 }
 
 body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.winner {
@@ -7703,7 +7776,7 @@ body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-rev
   display: flex;
   flex-direction: column;
   gap: var(--space-2-5);
-  width: min(94rem, max-content);
+  width: min(118rem, max-content);
   max-width: 100%;
   padding: var(--space-3);
   border: 1px solid var(--border-color);
@@ -7731,6 +7804,7 @@ body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-rev
 }
 
 .group-double-kicker {
+  flex: 0 0 auto;
   padding: 0.1rem 0.45rem;
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
@@ -7738,6 +7812,7 @@ body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-rev
   font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .group-double-title {
@@ -7745,32 +7820,34 @@ body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-rev
   font-size: var(--text-md);
   font-weight: 700;
   color: var(--text-main);
+  white-space: nowrap;
 }
 
 .group-double-meta {
   color: var(--text-muted);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .gsl-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(19.5rem, 22.5rem));
+  grid-template-columns: repeat(4, minmax(24.5rem, 28.5rem));
   gap: var(--space-2-5);
 }
 
 .gsl-grid[data-group-count="2"],
 .gsl-grid[data-group-count="4"] {
-  grid-template-columns: repeat(2, minmax(21rem, 24rem));
+  grid-template-columns: repeat(2, minmax(25rem, 28.5rem));
 }
 
 .gsl-grid[data-group-count="3"] {
-  grid-template-columns: repeat(3, minmax(20rem, 23rem));
+  grid-template-columns: repeat(3, minmax(24.5rem, 28.5rem));
 }
 
-@media (max-width: 1440px) {
+@media (max-width: 1680px) {
   .gsl-grid {
-    grid-template-columns: repeat(2, minmax(19.5rem, 1fr));
+    grid-template-columns: repeat(2, minmax(24.5rem, 1fr));
   }
 }
 
@@ -7778,6 +7855,14 @@ body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-rev
   .group-double-section {
     width: 100%;
     padding: var(--space-2);
+  }
+
+  .gsl-card-head {
+    flex-wrap: wrap;
+  }
+
+  .gsl-qualifiers {
+    flex-wrap: wrap;
   }
 
   .gsl-grid,
@@ -7794,16 +7879,16 @@ body.export-capture #canvas .group-double-section {
 }
 
 body.export-capture #canvas .gsl-grid {
-  grid-template-columns: repeat(4, 22rem) !important;
+  grid-template-columns: repeat(4, 28.5rem) !important;
 }
 
 body.export-capture #canvas .gsl-grid[data-group-count="2"],
 body.export-capture #canvas .gsl-grid[data-group-count="4"] {
-  grid-template-columns: repeat(2, 23rem) !important;
+  grid-template-columns: repeat(2, 28.5rem) !important;
 }
 
 body.export-capture #canvas .gsl-grid[data-group-count="3"] {
-  grid-template-columns: repeat(3, 22rem) !important;
+  grid-template-columns: repeat(3, 28.5rem) !important;
 }
 
 .gsl-card {
@@ -7819,10 +7904,10 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
 
 .gsl-card-head {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-1);
+  gap: var(--space-1-5);
   padding-bottom: var(--space-1-5);
   border-bottom: 1px solid var(--border-color);
 }
@@ -7835,21 +7920,24 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
   color: var(--text-main);
   font-size: var(--text-xs);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .gsl-qualifiers {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-1);
+  gap: 0.35rem;
   min-width: 0;
 }
 
 .gsl-qual-chip {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
   padding: 0.1rem 0.35rem;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-pill);
@@ -7857,7 +7945,21 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
   color: var(--text-main);
   font-size: var(--text-2xs);
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.gsl-qual-chip .country-flag,
+.gsl-player-row .country-flag {
+  width: 0.875rem;
+  height: 0.625rem;
+}
+
+.gsl-qual-name,
+.gsl-seed-mark,
+.gsl-adv-tag,
+.gsl-win-tag {
+  white-space: nowrap;
 }
 
 .gsl-qual-chip:hover,
@@ -7872,12 +7974,26 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
 }
 
 .gsl-seed-mark,
-.gsl-adv-tag {
+.gsl-adv-tag,
+.gsl-win-tag {
   flex: 0 0 auto;
   color: var(--accent-win);
-  font-size: var(--text-2xs);
   font-weight: 700;
   line-height: 1;
+}
+
+.gsl-seed-mark,
+.gsl-adv-tag {
+  font-size: 0.625rem;
+}
+
+.gsl-win-tag,
+.gsl-adv-tag {
+  margin-inline-start: auto;
+}
+
+.gsl-win-tag {
+  font-size: 0.5625rem;
 }
 
 .gsl-qual-pending {
@@ -7918,6 +8034,11 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
 .export-capture #canvas .gsl-conn-path {
   stroke: var(--connector) !important;
   stroke-width: 1.25px !important;
+  opacity: 1 !important;
+}
+
+.export-capture #canvas .gsl-conn-path.gsl-conn-lose {
+  opacity: 0.72 !important;
 }
 
 .gsl-bracket-cols {
@@ -7925,7 +8046,7 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.875rem;
+  gap: 0.625rem;
   align-items: stretch;
 }
 
@@ -7997,6 +8118,7 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
 .gsl-match-label {
   flex: 0 0 auto;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .gsl-match-res {
@@ -8022,10 +8144,10 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
 .gsl-player-row {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.18rem;
   min-width: 0;
-  padding: 0.2rem 0.35rem;
-  font-size: var(--text-xs);
+  padding: 0.2rem 0.28rem;
+  font-size: 0.65625rem;
   line-height: 1.3;
   cursor: pointer;
 }
@@ -8036,6 +8158,14 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
 
 .gsl-player-row .country-flag {
   flex: 0 0 auto;
+}
+
+.gsl-player-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .gsl-player-row .stone-icon {
@@ -8053,13 +8183,27 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
   color: var(--text-secondary);
 }
 
+.gsl-player-row.is-winner {
+  background: var(--gsl-winner-bg-modern);
+  box-shadow: inset 2.5px 0 0 var(--accent-win);
+}
+
 .gsl-player-row.is-winner .gsl-player-name {
   color: var(--text-main);
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .gsl-player-row.is-loser .gsl-player-name {
   color: var(--text-muted);
+  font-weight: 400;
+}
+
+.gsl-player-row.is-loser .country-flag {
+  opacity: 0.62;
+}
+
+.gsl-player-row.is-loser .stone-icon {
+  opacity: 0.55;
 }
 
 .gsl-player-row.highlight-player {
@@ -8103,7 +8247,7 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
   display: flex;
   align-items: center;
   width: 100%;
-  max-width: 94rem;
+  max-width: 118rem;
   gap: var(--space-2);
 }
 
@@ -8125,6 +8269,185 @@ body.export-capture #canvas .gsl-grid[data-group-count="3"] {
   font-size: var(--text-xs);
   font-weight: 600;
   white-space: nowrap;
+}
+
+#canvas[data-group-double="true"] .stage-knockout > .round-col:first-child {
+  width: 15.25rem;
+  min-width: 15.25rem;
+  max-width: 16rem;
+}
+
+/* 维基紧凑表格式下，小组双败区、过渡带与淘汰赛首轮沿用平直边框与灰白表格调性。 */
+body[data-view-mode="wiki"] #canvas[data-group-double="true"] .stage-knockout > .round-col:first-child {
+  width: 14.5rem;
+  min-width: 14.5rem;
+  max-width: 15.5rem;
+}
+
+body[data-view-mode="wiki"] .group-double-section {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+body[data-view-mode="wiki"] .group-double-header {
+  padding: 0.3rem 0.25rem 0.4rem;
+  border-bottom: 2px solid var(--control-border);
+}
+
+body[data-view-mode="wiki"] .group-double-kicker {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+body[data-view-mode="wiki"] .group-double-title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+body[data-view-mode="wiki"] .gsl-card {
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 0;
+  background: var(--canvas-bg);
+}
+
+body[data-view-mode="wiki"] .gsl-card-head {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+}
+
+body[data-view-mode="wiki"] .gsl-group-badge {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-main);
+}
+
+body[data-view-mode="wiki"] .gsl-qual-chip {
+  padding: 0.08rem 0.32rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0;
+  background: var(--canvas-bg);
+  color: var(--text-main);
+}
+
+body[data-view-mode="wiki"] .gsl-seed-mark {
+  color: var(--text-secondary);
+}
+
+body[data-view-mode="wiki"] .gsl-win-tag {
+  color: var(--text-main);
+  margin-inline-end: 0.18rem;
+}
+
+body[data-view-mode="wiki"] .gsl-adv-tag {
+  color: var(--award);
+  margin-inline-end: 0.18rem;
+}
+
+body[data-view-mode="wiki"] .gsl-bracket {
+  padding: 0.42rem 0.35rem;
+}
+
+body[data-view-mode="wiki"] .gsl-match {
+  border: 1px solid var(--border-light);
+  border-radius: 0;
+  background: var(--canvas-bg);
+}
+
+body[data-view-mode="wiki"] .gsl-match--win,
+body[data-view-mode="wiki"] .gsl-match--lose,
+body[data-view-mode="wiki"] .gsl-match--decider {
+  border-left: 1px solid var(--border-light);
+}
+
+body[data-view-mode="wiki"] .gsl-match-head {
+  padding: 0.14rem 0.35rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+body[data-view-mode="wiki"] .gsl-player-row {
+  align-items: stretch;
+  min-height: 1.45rem;
+  gap: 0.18rem;
+  padding: 0 0 0 0.25rem;
+}
+
+body[data-view-mode="wiki"] .gsl-player-row.is-winner {
+  background: var(--gsl-winner-bg);
+  box-shadow: inset 3px 0 0 var(--gsl-winner-bar);
+}
+
+body[data-view-mode="wiki"] .gsl-player-row.is-loser {
+  background: var(--canvas-bg);
+}
+
+body[data-view-mode="wiki"] .gsl-player-row .country-flag,
+body[data-view-mode="wiki"] .gsl-player-row .gsl-player-name,
+body[data-view-mode="wiki"] .gsl-player-row .gsl-win-tag,
+body[data-view-mode="wiki"] .gsl-player-row .gsl-adv-tag {
+  align-self: center;
+}
+
+body[data-view-mode="wiki"] .gsl-player-row + .gsl-player-row {
+  border-top: 1px solid var(--border-light);
+}
+
+body[data-view-mode="wiki"] .gsl-player-meta {
+  align-self: stretch;
+  justify-content: center;
+  width: 1.1875rem;
+  min-width: 1.1875rem;
+  padding: 0.15rem 0.16rem;
+  border-left: 1px solid var(--border-light);
+  background: var(--canvas-bg);
+}
+
+body[data-view-mode="wiki"] .gsl-player-row.is-winner .gsl-player-meta {
+  background: var(--gsl-winner-bg);
+}
+
+body[data-view-mode="wiki"] .gsl-player-row.is-loser .gsl-player-meta {
+  background: var(--canvas-bg);
+}
+
+body[data-view-mode="wiki"] .gsl-card-extras {
+  padding: 0.3rem 0.5rem;
+  border-top: 1px solid var(--border-light);
+}
+
+body[data-view-mode="wiki"] .gsl-extra-btn {
+  border-color: var(--border-light);
+  border-radius: 0;
+}
+
+body[data-view-mode="wiki"] .stage-bridge::before,
+body[data-view-mode="wiki"] .stage-bridge::after {
+  border-top: 1px solid var(--border-light);
+}
+
+body[data-view-mode="wiki"] .stage-bridge-label {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border-light);
+  border-radius: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+body[data-view-mode="wiki"] .origin-group-badge,
+body[data-view-mode="wiki"] .drop-ref-badge {
+  border-color: var(--border-light);
+  border-radius: 0;
 }
 
 .origin-group-badge,

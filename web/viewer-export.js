@@ -161,9 +161,13 @@
     if (source.matches('.league-double-detail')) Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
     if (source.matches('.finals-champion-name, .series-game-winner-name')) {
       Object.assign(copy.style, {width: 'auto', flex: '1 1 auto', minWidth: '0', maxWidth: 'none'});
-    } else if (source.matches('.finals-champion-label, .origin-group-badge, .drop-ref-badge, .gsl-group-badge, .gsl-adv-tag, .double-lane-label, .stage-bridge-label')) {
+    } else if (source.matches('.finals-champion-label, .origin-group-badge, .drop-ref-badge, .group-double-kicker, .group-double-title, .group-double-meta, .gsl-group-badge, .gsl-adv-tag, .gsl-win-tag, .gsl-qual-chip, .gsl-seed-mark, .double-lane-label, .stage-bridge-label')) {
       Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
-    } else if (source.matches('.wiki-pname, .player-name, .player-outcome, .match-date, .match-code, .finals-badge-title, .finals-score, .series-game-result, .series-game-date, .series-game-num, .wiki-date-label, .gsl-match-label, .gsl-match-res, .gsl-qual-name, .gsl-player-name')) {
+    } else if (source.matches('.gsl-qualifiers')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', maxWidth: 'none'});
+    } else if (source.matches('.gsl-qual-name, .gsl-match-label, .gsl-match-res')) {
+      Object.assign(copy.style, {width: 'auto', whiteSpace: 'nowrap'});
+    } else if (source.matches('.wiki-pname, .player-name, .player-outcome, .match-date, .match-code, .finals-badge-title, .finals-score, .series-game-result, .series-game-date, .series-game-num, .wiki-date-label, .gsl-player-name')) {
       copy.style.width = 'auto';
     }
     if (source.tagName === 'TABLE') copy.style.removeProperty('height');

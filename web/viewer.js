@@ -1429,10 +1429,14 @@
 
       function roundDateRangeText(round) {
         const raw = String(round?.date_range || '').trim();
-        const dates = [...new Set((round?.matches || [])
-          .map(m => M.dateKey(m?.date))
-          .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
-        if (dates.length >= 2 && (!raw || !/[～~–—]|\d{4}-\d{2}-\d{2}\s*-\s*\d{2,4}/.test(raw))) {
+        const isDateList = /^\d{4}-\d{2}-\d{2}(?:\s*[、,，/;]\s*\d{4}-\d{2}-\d{2})+$/.test(raw);
+        const rawListDates = isDateList ? (raw.match(/\d{4}-\d{2}-\d{2}/g) || []) : [];
+        const matchDates = (round?.matches || []).flatMap(m => [
+          M.dateKey(m?.date),
+          ...((m?.subgames || []).map(g => M.dateKey(g?.date)))
+        ]);
+        const dates = [...new Set([...rawListDates, ...matchDates].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
+        if (dates.length >= 2 && (isDateList || !raw || !/[～~–—]|\d{4}-\d{2}-\d{2}\s*-\s*\d{2,4}/.test(raw))) {
           const first = dates[0], last = dates[dates.length - 1];
           return first.slice(0, 4) === last.slice(0, 4)
             ? `${first} ～ ${last.slice(5)}`

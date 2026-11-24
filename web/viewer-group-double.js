@@ -74,14 +74,17 @@
       const won = Boolean(winId && p?.id && p.id === winId);
       const lost = Boolean(winId && p?.id && !won);
       const color = stoneColor(game, p);
-      const seedMark = won && advQual && advQual.player?.id === p.id
-        ? `<span class="gsl-adv-tag" title="${esc(advQual.tag)} 晋级">${advQual.seed === 1 ? '①' : '②'}</span>`
+      const winBadgeHtml = won
+        ? (advQual && advQual.player?.id === p.id
+          ? `<span class="gsl-adv-tag" title="${esc(advQual.tag)} 晋级">${advQual.seed === 1 ? '①' : '②'}</span>`
+          : '<span class="gsl-win-tag" aria-label="胜">胜</span>')
         : '';
+      const metaHtml = `<span class="gsl-player-meta">${color ? `<i class="stone-icon stone-${color}" aria-hidden="true"></i>` : ''}</span>`;
       return `<div class="gsl-player-row${won ? ' is-winner' : lost ? ' is-loser' : ''}" data-player-name="${esc(p?.id ? pName : '')}" data-player-id="${esc(p?.id || '')}" role="button" tabindex="0">
         ${p?.id ? flagHtml(p.nationality) : ''}
         <span class="gsl-player-name">${esc(pName)}</span>
-        ${color ? `<i class="stone-icon stone-${color}" aria-hidden="true"></i>` : ''}
-        ${seedMark}
+        ${winBadgeHtml}
+        ${metaHtml}
       </div>`;
     }).join('');
     return `<article class="gsl-match gsl-match--${esc(role)}" id="gsl-match-${esc(game.id)}" data-match-id="${esc(game.id)}" data-gsl-role="${esc(role)}" title="${esc([label, fullDate, fullRes].filter(Boolean).join(' · '))}">
@@ -238,6 +241,8 @@
     if (!canvas || !stage) return;
     const section = canvas.querySelector('.group-double-section');
     if (!section || section.classList.contains('is-collapsed')) return;
+    const isWiki = typeof document !== 'undefined' && document.body?.dataset?.viewMode === 'wiki';
+    const cornerRadius = isWiki ? 0 : 2.5;
 
     const matchById = new Map();
     for (const g of stage.groups) {
@@ -294,7 +299,7 @@
         const midX = (x1 + x2) / 2 + xShift;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('class', `gsl-conn-path gsl-conn-${kind}`);
-        path.setAttribute('d', roundCornersPath([[x1, y1], [midX, y1], [midX, y2], [x2, y2]], 3));
+        path.setAttribute('d', roundCornersPath([[x1, y1], [midX, y1], [midX, y2], [x2, y2]], cornerRadius));
         if (playerName) path.dataset.playerName = playerName;
         svg.appendChild(path);
       };

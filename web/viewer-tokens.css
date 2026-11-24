@@ -183,6 +183,9 @@ body {
   --card-top-bg: #f4f3ef;
   --connector: #a8a59c;
   --connector-strong: #4a4d55;
+  --gsl-winner-bg: #ebe7db;
+  --gsl-winner-bar: #4a4d55;
+  --gsl-winner-bg-modern: rgba(31, 122, 77, 0.09);
 
   color-scheme: light;
 }
@@ -255,6 +258,9 @@ body[data-theme="dark"] {
   --card-top-bg: #272a33;
   --connector: #5b6272;
   --connector-strong: #c9cedc;
+  --gsl-winner-bg: #272c37;
+  --gsl-winner-bar: #b4bccf;
+  --gsl-winner-bg-modern: rgba(111, 211, 176, 0.13);
 
   color-scheme: dark;
 }
