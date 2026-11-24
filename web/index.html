@@ -165,6 +165,22 @@
           </div>
           <button class="btn view-tool-btn is-active" id="btnChampionPath" type="button" aria-pressed="true" title="突出显示本届冠军的晋级连线">冠军路线</button>
           <button class="btn view-tool-btn" id="btnHoverTrack" type="button" aria-pressed="false" title="悬停棋手时高亮晋级路线" hidden>悬停追踪</button>
+          <details class="display-settings-menu" id="displaySettingsMenu">
+            <summary class="btn view-tool-btn display-settings-trigger" id="btnDisplaySettings" title="调整番棋标记与冠亚标签显示">显示设置</summary>
+            <div class="display-settings-panel" role="group" aria-label="显示设置">
+              <label class="display-setting-field" for="settingSeriesMarkStyle">
+                <span>番棋逐局标记</span>
+                <select id="settingSeriesMarkStyle">
+                  <option value="check">✓ / ✕</option>
+                  <option value="text">胜 / 负</option>
+                </select>
+              </label>
+              <label class="display-setting-check" for="settingShowFinalsBadges">
+                <input type="checkbox" id="settingShowFinalsBadges" checked>
+                <span>显示冠亚标签</span>
+              </label>
+            </div>
+          </details>
           <span class="toolbar-divider" aria-hidden="true"></span>
           <button class="btn view-tool-btn btn-export-primary" id="btnExportBracket" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>导出对阵图</button>
           <div class="edition-navigation">

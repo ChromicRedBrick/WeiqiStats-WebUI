@@ -1021,7 +1021,10 @@
   }
   function prelimRegionOf(round) {
     const name = round.round_name || '';
-    if (PRELIM_STAGE_PREFIX.test(name)) return '预选/复赛';
+    if (PRELIM_STAGE_PREFIX.test(name)) {
+      const region = /^(中国|韩国|日本)(?:选拔|预选)/.exec(name.replace(PRELIM_STAGE_PREFIX, ''));
+      return region?.[1] || '预选/复赛';
+    }
     if (name === '统合预选') return '综合预选';
     const m = /预选赛（([^）]+)）/.exec(name);
     if (!m) return '其他地区';
@@ -1033,17 +1036,19 @@
     if (word === '统合') return '综合预选';
     return '其他地区';
   }
-  // 预选赛段可以再按组别分节：轮名末段是「组别＋轮次」时（如
+  // 预选赛段可以再按组别分节：轮名末段可以是组名或「组别＋轮次」（如
   // 「预选/复赛｜综合预选｜公开组第1组第1轮」「预选/复赛｜世界组第5轮」），
   // 取出组别名作为分节标题；「中国预选第1轮」这类地区写法不含组别，仍按地区分节。
   const PRELIM_GROUP_TAIL = /(?:第[\d一二三四五六七八九十百]+轮|决赛|決勝|半决赛|準決勝|[\d一二三四五六七八九十百]+强赛?|第[\d一二三四五六七八九十/]+局)$/;
+  const PRELIM_GROUP_PARENTHETICAL = /[（(]([^()（）]{1,9}组)[）)]$/;
   const PRELIM_GROUP_WORDS = ['预选赛', '预选', '预赛', '予選', '初赛', '复赛'];
   function prelimGroupOf(round) {
     const name = String(round.round_name || '').trim();
     if (!/[｜|]/.test(name)) return null;
     const last = name.split(/[｜|]/).pop().trim();
-    let label = last.replace(PRELIM_GROUP_TAIL, '').replace(/(?:预选|予選|本战)$/, '').trim();
-    if (!label || label === last) return null;
+    const parenthetical = PRELIM_GROUP_PARENTHETICAL.exec(last);
+    let label = parenthetical?.[1] || last.replace(PRELIM_GROUP_TAIL, '').replace(/(?:预选|予選|本战)$/, '').trim();
+    if (!label) return null;
     // 赛事名常与组别连写（「农心辛拉面杯…预选D组」「预选赛40以上组」），
     // 取最后一个预选类词之后的组别名；不保留「赛」这类残留字。
     let cut = -1;
@@ -1056,6 +1061,11 @@
   function prelimRoundTailLabel(round, groupLabel) {
     let label = String(round?.round_name || '').replace('（统合）', '').trim();
     if (groupLabel) {
+      const parenthetical = PRELIM_GROUP_PARENTHETICAL.exec(label);
+      if (parenthetical?.[1] === groupLabel) {
+        const withoutGroup = label.slice(0, parenthetical.index);
+        return withoutGroup.match(PRELIM_GROUP_TAIL)?.[0] || roundDisplayName(round);
+      }
       const idx = label.indexOf(groupLabel);
       if (idx >= 0) {
         const tail = label.slice(idx + groupLabel.length).replace(/^[｜|]\s*/, '').trim();

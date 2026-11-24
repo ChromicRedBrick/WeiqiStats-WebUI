@@ -23,6 +23,8 @@
       const CHAMPION_PATH_KEY = 'go_bracket_champion_path_v1';
       const HOVER_TRACK_KEY = 'go_bracket_hover_track_v1';
       const DOUBLE_LOSER_LINES_KEY = 'go_double_loser_lines_v1';
+      const SERIES_MARK_STYLE_KEY = 'go_series_mark_style_v1';
+      const SHOW_FINALS_BADGES_KEY = 'go_show_finals_badges_v1';
       const THEME_KEY = 'go_viewer_theme_v1';
       let legacyMode = '';
       let storedPresentation = 'wiki';
@@ -30,6 +32,8 @@
       let championPathEnabled = true;
       let hoverTrackEnabled = false;
       let showLoserLines = true;
+      let currentSeriesMarkStyle = 'check';
+      let showFinalsBadges = true;
       let storedTheme = '';
       try {
         legacyMode = localStorage.getItem(LEGACY_MODE_KEY) || '';
@@ -38,9 +42,14 @@
         if (localStorage.getItem(CHAMPION_PATH_KEY) === 'off') championPathEnabled = false;
         if (localStorage.getItem(HOVER_TRACK_KEY) === 'on') hoverTrackEnabled = true;
         if (localStorage.getItem(DOUBLE_LOSER_LINES_KEY) === 'hover') showLoserLines = false;
+        const storedMarkStyle = localStorage.getItem(SERIES_MARK_STYLE_KEY);
+        if (storedMarkStyle === 'check' || storedMarkStyle === 'text') currentSeriesMarkStyle = storedMarkStyle;
+        if (localStorage.getItem(SHOW_FINALS_BADGES_KEY) === '0') showFinalsBadges = false;
         storedTheme = localStorage.getItem(THEME_KEY) || '';
       } catch (_) {}
       document.body.dataset.championPath = championPathEnabled ? 'on' : 'off';
+      document.body.dataset.seriesMarkStyle = currentSeriesMarkStyle;
+      document.body.dataset.finalsBadges = showFinalsBadges ? 'on' : 'off';
       const router = window.GoViewerRouter || null;
       const themeManager = window.GoViewerTheme || null;
       const initialRoute = router ? router.read() : null;
@@ -1243,10 +1252,15 @@
       const seriesKey = m => `${currentEditionId}:${m.id}`;
       function seriesMarks(m) {
         const outcomes = M.seriesOutcomes(m);
-        const mark = symbol => symbol === '○' || symbol === '×'
-          ? `<svg class="series-mark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">${symbol === '○'
-            ? '<circle cx="12" cy="12" r="8" />'
-            : '<path d="M4 4L20 20M20 4L4 20" />'}</svg>` : esc(symbol);
+        const mark = symbol => {
+          if (symbol !== '○' && symbol !== '×') return esc(symbol);
+          if (currentSeriesMarkStyle === 'text') {
+            return `<span class="series-mark-text ${symbol === '○' ? 'is-win' : 'is-loss'}" aria-hidden="true">${symbol === '○' ? '胜' : '负'}</span>`;
+          }
+          return `<svg class="series-mark ${symbol === '○' ? 'series-mark-win' : 'series-mark-loss'}" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">${symbol === '○'
+            ? '<path d="M4.5 12.5L9.5 17.5L19.5 6.5" />'
+            : '<path d="M5.5 5.5L18.5 18.5M18.5 5.5L5.5 18.5" />'}</svg>`;
+        };
         return `<span class="series-outcomes" aria-label="逐局赛果，以第一行棋手为准">${outcomes.length
           ? outcomes.map(o => {
             const mmdd = /^\d{4}-(\d{2}-\d{2})$/.exec(o.date || '')?.[1] || '';
@@ -1497,6 +1511,17 @@
         return {srcByMatch, dstByMatch};
       }
 
+      function finalsAwardFor(player, awards) {
+        if (!awards?.champ || !player?.id) return null;
+        if (M.samePlayer(awards.champ, player)) {
+          return {role: 'champion', html: '<span class="finals-award-badge finals-champion finals-champion-label">冠军</span>'};
+        }
+        if (awards.runner ? M.samePlayer(awards.runner, player) : true) {
+          return {role: 'runner', html: '<span class="finals-award-badge finals-runner-label">亚军</span>'};
+        }
+        return null;
+      }
+
       function originBadgeHtml(player, originMap) {
         const origin = player?.id && originMap ? originMap[player.id] : null;
         if (!origin) return '';
@@ -1568,9 +1593,8 @@
             const scoreValue = data.edition.finals_score || summary.series_score || '';
             const longScore = scoreValue.length > 6;
             const champ = data.champion?.id ? data.champion : null;
-            const champHtml = champ
-              ? `<div class="finals-champion" data-player-id="${esc(champ.id)}" data-player-name="${esc(champ.name_zh)}" role="button" tabindex="0">${champ.nationality ? getFlagSvg(champ.nationality) : ''}<span class="finals-champion-name">${esc(champ.name_zh)}</span><span class="finals-champion-label">冠军</span></div>`
-              : '';
+            const runner = data.runner_up?.id ? data.runner_up : null;
+            const finalsAwards = champ ? {champ, runner} : null;
             const details = document.createElement('button');
             details.type = 'button'; details.className = 'series-details'; details.textContent = '详情';
             details.onclick = () => showMatchDetails({...finalGames[0], subgames: finalGames, isFinalSeries: true});
@@ -1579,10 +1603,9 @@
             head.innerHTML = `<div class="finals-badge-title">${finalTitle}</div><strong class="finals-score${longScore ? ' is-long' : ''}">${esc(scoreValue || '—')}</strong>`;
             if (horizontal) head.appendChild(details);
             group.appendChild(head);
-            if (champHtml) group.insertAdjacentHTML('beforeend', champHtml);
             const finalOrigin = index === 0 ? opts?.originMap : null;
             if (finalGames.length === 1) {
-              const card = createMatchCard(finalGames[0], true, false, true, null, {originMap: finalOrigin});
+              const card = createMatchCard(finalGames[0], true, false, true, null, {originMap: finalOrigin, finalsAwards});
               card.id = 'match-game-' + finalGames[0].id;
               group.appendChild(card);
             } else {
@@ -1599,9 +1622,11 @@
                 const lost = hasFinalWinner && !won;
                 const sc = summary.player_scores ? summary.player_scores[slot]
                   : (won ? wScore : (hasFinalWinner ? lScore : ''));
-                return `<div class="player-row finals-matchup-row${won ? ' winner' : lost ? ' loser' : ''}" data-player-name="${esc(p.name_zh || '待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
+                const award = finalsAwardFor(p, finalsAwards);
+                const roleClass = award ? (award.role === 'champion' ? ' is-finals-champion' : ' is-finals-runner') : '';
+                return `<div class="player-row finals-matchup-row${won ? ' winner' : lost ? ' loser' : ''}${roleClass}" data-player-name="${esc(p.name_zh || '待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
                   <div class="player-info">${p.id ? getFlagSvg(p.nationality) : ''}<span class="player-name">${esc(p.name_zh || '待定')}</span>${originBadgeHtml(p, finalOrigin)}</div>
-                  <span class="player-outcome">${esc(sc ?? '')}</span></div>`;
+                  ${award ? award.html : ''}<span class="player-outcome">${esc(sc ?? '')}</span></div>`;
               }).join('');
               group.appendChild(matchup);
               group.appendChild(createSeriesGameList(finalGames, {
@@ -1611,7 +1636,7 @@
               }));
             }
             if (!horizontal) group.appendChild(details);
-            group.querySelectorAll('.finals-champion[data-player-id], .finals-matchup-row').forEach(el => {
+            group.querySelectorAll('.finals-matchup-row').forEach(el => {
               const name = el.dataset.playerName, id = el.dataset.playerId;
               el.onmouseenter = () => id && highlightPlayer(name);
               el.onclick = event => { event.stopPropagation(); if (id) window.showPlayer(id); };
@@ -1732,10 +1757,12 @@
           const originBadge = originBadgeHtml(p, extra.originMap);
           const dstBadge = dropDstBadgeHtml(m.id, p, extra.dropRefs);
           const srcBadge = !score ? dropSrcBadgeHtml(m.id, p, won, isSeries, extra.dropRefs) : '';
-          return `<div class="player-row${won ? ' winner' : lost ? ' loser' : ''}" data-player-name="${esc(p.name_zh || '轮空 / 待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
+          const award = finalsAwardFor(p, extra.finalsAwards);
+          const roleClass = award ? (award.role === 'champion' ? ' is-finals-champion' : ' is-finals-runner') : '';
+          return `<div class="player-row${won ? ' winner' : lost ? ' loser' : ''}${roleClass}" data-player-name="${esc(p.name_zh || '轮空 / 待定')}" data-player-id="${esc(p.id || '')}" role="button" tabindex="0">
             <div class="player-info">
               ${p.id ? getFlagSvg(p.nationality) : ''}<span class="player-name">${esc(p.name_zh || '轮空 / 待定')}</span>${originBadge}${dstBadge}</div>
-            <span class="player-outcome">${srcBadge || esc(score ?? '')}</span>${stoneBox(m,p)}</div>`;
+            ${award ? award.html : ''}<span class="player-outcome">${srcBadge || esc(score ?? '')}</span>${stoneBox(m,p)}</div>`;
         };
         // 决赛逐局卡片按顺序显示“第N局”；导入用的 SRC- 来源编号只用于溯源，不当标题。
         const matchCode = isThirdPlace ? '季军战'
@@ -3929,6 +3956,38 @@ window.showPlayer = function(playerNameOrId) {
           };
         }
 
+        const displaySettingsMenu = document.getElementById('displaySettingsMenu');
+        const seriesMarkSelect = document.getElementById('settingSeriesMarkStyle');
+        const finalsBadgesCheck = document.getElementById('settingShowFinalsBadges');
+        if (seriesMarkSelect) {
+          seriesMarkSelect.value = currentSeriesMarkStyle;
+          seriesMarkSelect.addEventListener('change', () => {
+            currentSeriesMarkStyle = seriesMarkSelect.value === 'text' ? 'text' : 'check';
+            document.body.dataset.seriesMarkStyle = currentSeriesMarkStyle;
+            try { localStorage.setItem(SERIES_MARK_STYLE_KEY, currentSeriesMarkStyle); } catch (_) {}
+            if (allData[currentEditionId]) {
+              renderCurrentBracket(allData[currentEditionId]);
+              requestDraw();
+            }
+          });
+        }
+        if (finalsBadgesCheck) {
+          finalsBadgesCheck.checked = showFinalsBadges;
+          finalsBadgesCheck.addEventListener('change', () => {
+            showFinalsBadges = Boolean(finalsBadgesCheck.checked);
+            document.body.dataset.finalsBadges = showFinalsBadges ? 'on' : 'off';
+            try { localStorage.setItem(SHOW_FINALS_BADGES_KEY, showFinalsBadges ? '1' : '0'); } catch (_) {}
+            requestDraw();
+          });
+        }
+        if (displaySettingsMenu) {
+          document.addEventListener('click', event => {
+            if (displaySettingsMenu.open && !displaySettingsMenu.contains(event.target)) {
+              displaySettingsMenu.open = false;
+            }
+          });
+        }
+
         // Window resize & dynamic layout/numbering redraw connectors
         window.addEventListener('resize', requestDraw);
         window.addEventListener('go:numbering-decorated', requestDraw);
@@ -3958,6 +4017,7 @@ window.showPlayer = function(playerNameOrId) {
         });
         window.addEventListener('keydown', e => {
           if (e.key === 'Escape') {
+            document.getElementById('displaySettingsMenu')?.removeAttribute('open');
             if (document.body.classList.contains('catalog-open')) { setMobileCatalog(false); return; }
             if (mobileCatalogMedia.matches && more.getAttribute('aria-expanded') === 'true') {
               more.setAttribute('aria-expanded', 'false'); more.focus(); return;

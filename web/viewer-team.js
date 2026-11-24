@@ -502,7 +502,13 @@
             const symbol = status === 'no_result' ? '—' : status === 'scheduled' ? '…' : status !== 'decided'
               || ![b.team_1_player_id, b.team_2_player_id].includes(winner) ? '?' : winner === b.team_1_player_id ? '○' : '×';
             const label = `第${b.board_number}台：${status === 'no_result' ? '无胜负' : status === 'scheduled' ? '待赛' : status === 'pending' ? '赛果待补' : symbol === '○' ? '上方队伍胜' : '上方队伍负'}`;
-            return `<span class="series-outcome" title="${esc(label)}" aria-label="${esc(label)}">${symbol === '○' || symbol === '×' ? `<svg class="series-mark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${symbol === '○' ? '<circle cx="12" cy="12" r="8" />' : '<path d="M4 4L20 20M20 4L4 20" />'}</svg>` : symbol}</span>`;
+            const useText = typeof document !== 'undefined' && document.body?.dataset?.seriesMarkStyle === 'text';
+            const markHtml = (symbol === '○' || symbol === '×')
+              ? (useText
+                ? `<span class="series-mark-text ${symbol === '○' ? 'is-win' : 'is-loss'}" aria-hidden="true">${symbol === '○' ? '胜' : '负'}</span>`
+                : `<svg class="series-mark ${symbol === '○' ? 'series-mark-win' : 'series-mark-loss'}" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${symbol === '○' ? '<path d="M4.5 12.5L9.5 17.5L19.5 6.5" />' : '<path d="M5.5 5.5L18.5 18.5M18.5 5.5L5.5 18.5" />'}</svg>`)
+              : symbol;
+            return `<span class="series-outcome" data-symbol="${esc(symbol)}" title="${esc(label)}" aria-label="${esc(label)}">${markHtml}</span>`;
           }).join('');
           article.innerHTML = `<div class="team-tie-summary">${[tie.team_1_id, tie.team_2_id].map((id, i) => `<div class="team-tie-player${tie.winner_team_id === id ? ' team-winner' : ''}"><span>${teamFlag(id)}${esc(teamName(id))}</span><strong>${tie[i ? 'score_2' : 'score_1'] ?? '—'}</strong></div>`).join('')}<div class="team-tie-footer"><span class="series-outcomes" aria-label="逐台赛果，以上方队伍为准">${marks}</span></div></div>`;
         } else {

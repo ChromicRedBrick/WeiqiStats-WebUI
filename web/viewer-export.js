@@ -161,7 +161,7 @@
     if (source.matches('.league-double-detail')) Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
     if (source.matches('.finals-champion-name, .series-game-winner-name')) {
       Object.assign(copy.style, {width: 'auto', flex: '1 1 auto', minWidth: '0', maxWidth: 'none'});
-    } else if (source.matches('.finals-champion-label, .origin-group-badge, .drop-ref-badge, .group-double-kicker, .group-double-title, .group-double-meta, .gsl-group-badge, .gsl-adv-tag, .gsl-win-tag, .gsl-qual-chip, .gsl-seed-mark, .double-lane-label, .stage-bridge-label')) {
+    } else if (source.matches('.finals-champion-label, .finals-award-badge, .finals-runner-label, .series-mark-text, .origin-group-badge, .drop-ref-badge, .group-double-kicker, .group-double-title, .group-double-meta, .gsl-group-badge, .gsl-adv-tag, .gsl-win-tag, .gsl-qual-chip, .gsl-seed-mark, .double-lane-label, .stage-bridge-label')) {
       Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
     } else if (source.matches('.group-double-header')) {
       Object.assign(copy.style, {width: 'auto', height: 'auto', minHeight: '0', maxHeight: 'none'});
@@ -355,10 +355,13 @@
         }
         copy.querySelectorAll('.draw-unit-actions').forEach(el => el.remove());
       }
-      // 已在导出布局中隐藏，克隆后移除可避免编号文字进入 SVG 文本层；同时去掉含编号的悬停标题。
+      // 已在导出布局中隐藏，克隆后移除可避免编号或标签文字进入 SVG 文本层；同时去掉含编号的悬停标题。
       if (hideRoundNumber) stripHiddenBadges(copy, '.numbering-badge.numbering-round');
       if (hideMatchNumber) stripHiddenBadges(copy, '.numbering-badge:not(.numbering-round)');
       if (!displaySeriesDates) copy.querySelectorAll('.series-outcome-date').forEach(el => el.remove());
+      if (document.body.dataset.finalsBadges === 'off') {
+        copy.querySelectorAll('.finals-award-badge, .wiki-finals-champion').forEach(el => el.remove());
+      }
       if (leagueWidth) {
         const copyLeague = copy.querySelector('.round-col.league-results');
         const copyFinals = copy.querySelector('.round-col.finals-wide');
