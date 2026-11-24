@@ -93,6 +93,11 @@ function extractMonthKey(str) {
   return 0;
 }
 
+function plotTimeKey(item, isDate) {
+  const date = isDate ? String(item.date || item.month_str || '') : '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? Number(date.replaceAll('-', '')) : Number(item.month_key) || 0;
+}
+
 function parseDateMs(str) {
   if (!str) return null;
   const s = String(str).trim();
@@ -379,6 +384,28 @@ function savePlayerColorRegistry() {
   } catch (_) {}
 }
 
+function getPlayerColors(players) {
+  const palette = getThemeColors(document.body.dataset.theme).series;
+  const map = buildPlayerColorMap(players, palette);
+  return new Map(players.map(player => [player, map.get(playerColorKey(player))]));
+}
+
+function cyclePlayerColor(player, players) {
+  const palette = getThemeColors(document.body.dataset.theme).series;
+  const map = buildPlayerColorMap(players, palette);
+  const key = playerColorKey(player);
+  const start = palette.indexOf(map.get(key));
+  const occupied = new Set([...map].filter(([other]) => other !== key).map(([, color]) => color));
+  for (let offset = 1; offset < palette.length; offset++) {
+    const next = (start + offset) % palette.length;
+    if (occupied.has(palette[next])) continue;
+    loadPlayerColorRegistry().set(key, next);
+    savePlayerColorRegistry();
+    return true;
+  }
+  return false;
+}
+
 function buildPlayerColorMap(players, palette) {
   const colors = Array.isArray(palette) && palette.length > 0 ? palette : PALETTE;
   const registry = loadPlayerColorRegistry();
@@ -388,25 +415,31 @@ function buildPlayerColorMap(players, palette) {
     .filter(Boolean))).sort();
   const map = new Map();
   const used = new Set();
-  // 已记忆的颜色优先保留，保证旧棋手换组合、换页面都不变色。
-  registry.forEach(index => { used.add(index); });
-
+  const remembered = new Set(registry.values());
   let changed = false;
-  keys.forEach(key => {
-    let index = registry.get(key);
-    if (!Number.isInteger(index) || index < 0 || index >= colors.length) {
-      const start = stableHash(key) % colors.length;
-      index = start;
-      for (let i = 0; i < colors.length; i++) {
-        const candidate = (start + i) % colors.length;
-        if (!used.has(candidate)) { index = candidate; break; }
-      }
+
+  // 先保留本图已有的色位，再给新棋手或撞色的棋手分配色位。
+  for (const key of keys) {
+    const index = registry.get(key);
+    if (!Number.isInteger(index) || index < 0 || index >= colors.length || used.has(index)) continue;
+    map.set(key, colors[index]);
+    used.add(index);
+  }
+  for (const key of keys) {
+    if (map.has(key)) continue;
+    const start = stableHash(key) % colors.length;
+    const candidates = colors.map((_, offset) => (start + offset) % colors.length);
+    const index = candidates.find(i => !used.has(i) && !remembered.has(i))
+      ?? candidates.find(i => !used.has(i))
+      ?? start;
+    if (!registry.has(key)) {
       registry.set(key, index);
-      used.add(index);
+      remembered.add(index);
       changed = true;
     }
-    map.set(key, colors[index] || colors[0]);
-  });
+    used.add(index);
+    map.set(key, colors[index]);
+  }
 
   if (keys.length > 0 && changed) savePlayerColorRegistry();
   return map;
@@ -853,7 +886,7 @@ class RatingChartRenderer {
     this._destroyed = true;
     if (this._resizeObserver) { this._resizeObserver.disconnect(); this._resizeObserver = null; }
     if (this._fullscreenKeyHandler) {
-      window.removeEventListener('keydown', this._fullscreenKeyHandler);
+      window.removeEventListener('keydown', this._fullscreenKeyHandler, true);
       this._fullscreenKeyHandler = null;
     }
     if (this._fullscreenRenderer) { this._fullscreenRenderer.destroy(); this._fullscreenRenderer = null; }
@@ -923,7 +956,26 @@ class RatingChartRenderer {
       players = allPlayers.filter(player => !this._hiddenSeries.has(playerColorKey(player)));
     }
 
+    const hasBounds = Boolean(this.options.startKey && this.options.endKey);
+    const start = hasBounds ? Math.min(this.options.startKey, this.options.endKey) : null;
+    const end = hasBounds ? Math.max(this.options.startKey, this.options.endKey) : null;
+    const lower = isDateAxis && start < 1000000 ? start * 100 + 1 : start;
+    const upper = isDateAxis && end < 1000000 ? end * 100 + 31 : end;
+    const inTimeRange = item => {
+      if (!hasBounds) return true;
+      let key = plotTimeKey(item, isDateAxis);
+      if (!key) return true;
+      if (isDateAxis && key < 1000000) key *= 100;
+      return key >= lower && key <= upper;
+    };
+    const seriesSegments = points => (isDateAxis || !this.options.breakOnMissing)
+      ? [points]
+      : splitMonthPoints(points);
+
     // 日期轴概览采样：长跨度逐局点只保留时间桶内的首末与极值；单指标详情页不抽样。
+    if (isDateAxis && hasBounds) {
+      players = players.map(player => ({...player, history: (player.history || []).filter(inTimeRange)}));
+    }
     const originalMaxPts = players.reduce((max, player) => Math.max(max, (player.history || []).length), 0);
     if (isDateAxis && this.options.sampling !== 'all' && mode !== 'single-metric' && mode !== 'two-diff') {
       const samples = [];
@@ -941,13 +993,6 @@ class RatingChartRenderer {
       }
     }
 
-    const hasMkBounds = Boolean(this.options.startKey && this.options.endKey);
-    const seriesSegments = points => (isDateAxis || !this.options.breakOnMissing)
-      ? [points]
-      : splitMonthPoints(points);
-    const sKey = hasMkBounds ? Math.min(this.options.startKey, this.options.endKey) : null;
-    const eKey = hasMkBounds ? Math.max(this.options.startKey, this.options.endKey) : null;
-
     let allMonths = (this.data.months || []).slice();
     let minTs = null;
     let maxTs = null;
@@ -956,8 +1001,7 @@ class RatingChartRenderer {
       const allTimestamps = [];
       const collectTs = list => {
         (list || []).forEach(item => {
-          if (!item) return;
-          if (hasMkBounds && item.month_key && (item.month_key < sKey || item.month_key > eKey)) return;
+          if (!item || !inTimeRange(item)) return;
           const ts = parseDateMs(item.date || item.month_str);
           if (ts !== null) allTimestamps.push(ts);
         });
@@ -978,9 +1022,7 @@ class RatingChartRenderer {
         maxTs += 15 * 86400000;
       }
     } else {
-      if (hasMkBounds) {
-        allMonths = allMonths.filter(m => m.month_key >= sKey && m.month_key <= eKey);
-      }
+      if (hasBounds) allMonths = allMonths.filter(inTimeRange);
       if (allMonths.length === 0) {
         this.container.innerHTML = '<div class="ratings-chart-empty">选定时间范围内没有有效数据。</div>';
         return;
@@ -1054,7 +1096,7 @@ class RatingChartRenderer {
     const inAxis = item => {
       if (!item) return false;
       if (!isDateAxis) return monthIndexMap.has(item.month_key);
-      if (hasMkBounds && item.month_key && (item.month_key < sKey || item.month_key > eKey)) return false;
+      if (!inTimeRange(item)) return false;
       const ts = parseDateMs(item.date || item.month_str);
       return ts !== null && ts >= minTs && ts <= maxTs;
     };
@@ -2190,6 +2232,7 @@ class RatingChartRenderer {
           const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           pathEl.setAttribute('class', 'chart-line');
           pathEl.setAttribute('data-player', player.player_clean);
+          pathEl.setAttribute('data-player-key', key);
           pathEl.setAttribute('d', pathD);
           pathEl.setAttribute('fill', 'none');
           pathEl.setAttribute('stroke', color);
@@ -2208,6 +2251,7 @@ class RatingChartRenderer {
             const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             dot.setAttribute('class', 'chart-point');
             dot.setAttribute('data-player', player.player_clean);
+            dot.setAttribute('data-player-key', key);
             dot.setAttribute('cx', p.x);
             dot.setAttribute('cy', p.y);
             dot.setAttribute('r', effPtSize);
@@ -2372,6 +2416,7 @@ class RatingChartRenderer {
           const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           pathEl.setAttribute('class', 'chart-line');
           pathEl.setAttribute('data-player', player.player_clean);
+          pathEl.setAttribute('data-player-key', key);
           pathEl.setAttribute('d', pathD);
           pathEl.setAttribute('fill', 'none');
           pathEl.setAttribute('stroke', color);
@@ -2390,6 +2435,7 @@ class RatingChartRenderer {
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             rect.setAttribute('class', 'chart-point');
             rect.setAttribute('data-player', player.player_clean);
+            rect.setAttribute('data-player-key', key);
             rect.setAttribute('x', p.x - sqRadius);
             rect.setAttribute('y', p.y - sqRadius);
             rect.setAttribute('width', sqRadius * 2);
@@ -2779,7 +2825,63 @@ class RatingChartRenderer {
       return nearest;
     };
 
-    overlay.addEventListener('mousemove', event => {
+    const brushEnabled = typeof this.options.onBrushRange === 'function';
+    let brush = null;
+    let ignoreClick = false;
+    if (brushEnabled) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('class', 'chart-brush-rect');
+      rect.setAttribute('y', margin.top);
+      rect.setAttribute('height', plotHeight);
+      rect.style.display = 'none';
+      svg.appendChild(rect);
+      const points = [...interactiveData].sort((a, b) => a.x - b.x);
+      const plotX = event => Math.max(margin.left, Math.min(margin.left + plotWidth, getSvgCoordinates(svg, event).x));
+      const clearBrush = () => {
+        brush = null;
+        rect.style.display = 'none';
+      };
+      overlay.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.pointerType === 'touch') return;
+        ignoreClick = false;
+        brush = {id: event.pointerId, start: plotX(event)};
+        overlay.setPointerCapture(event.pointerId);
+      });
+      overlay.addEventListener('pointermove', event => {
+        if (brush?.id !== event.pointerId) return;
+        const x = plotX(event);
+        const width = Math.abs(x - brush.start);
+        if (width < 4 && rect.style.display === 'none') return;
+        rect.setAttribute('x', Math.min(x, brush.start));
+        rect.setAttribute('width', width);
+        rect.style.display = '';
+        hidePoint();
+      });
+      overlay.addEventListener('pointerup', event => {
+        if (brush?.id !== event.pointerId) return;
+        const start = brush.start;
+        const end = plotX(event);
+        ignoreClick = Math.abs(start - end) >= 4;
+        clearBrush();
+        if (Math.abs(start - end) < 16) return;
+
+        const left = Math.min(start, end);
+        const right = Math.max(start, end);
+        const first = points.find(item => item.x >= left);
+        const last = points.findLast(item => item.x <= right);
+        if (!first || !last || first.x >= last.x) return;
+        const isDate = Boolean(first.date && last.date);
+        const startKey = plotTimeKey(first, isDate);
+        const endKey = plotTimeKey(last, isDate);
+        if (startKey && endKey > startKey) this.options.onBrushRange({startKey, endKey});
+      });
+      overlay.addEventListener('pointercancel', clearBrush);
+      overlay.addEventListener('lostpointercapture', clearBrush);
+      overlay.addEventListener('dblclick', () => this.options.onResetZoom?.());
+    }
+
+    overlay.addEventListener('pointermove', event => {
+      if (brush || event.pointerType === 'touch') return;
       const coords = getSvgCoordinates(svg, event);
       const nearest = nearestFromX(coords.x);
       if (nearest) showPoint(nearest, event.clientY);
@@ -2797,6 +2899,10 @@ class RatingChartRenderer {
     overlay.addEventListener('touchmove', handleTouch, {passive: true});
 
     overlay.addEventListener('click', event => {
+      if (ignoreClick) {
+        ignoreClick = false;
+        return;
+      }
       const coords = getSvgCoordinates(svg, event);
       const nearest = nearestFromX(coords.x);
       if (nearest) {
@@ -2849,6 +2955,20 @@ class RatingChartRenderer {
     });
 
     svg.appendChild(overlay);
+  }
+
+  focusPlayer(player) {
+    const svg = this.svg;
+    if (!svg) return;
+    const key = player ? playerColorKey(player) : '';
+    const lines = [...svg.querySelectorAll('.chart-line[data-player-key]')];
+    const active = key && lines.some(line => line.dataset.playerKey === key);
+    for (const line of lines) {
+      line.classList.toggle('is-focused', Boolean(active && line.dataset.playerKey === key));
+    }
+    for (const mark of svg.querySelectorAll('[data-player-key]')) {
+      mark.classList.toggle('is-dimmed', Boolean(active && mark.dataset.playerKey !== key));
+    }
   }
 
   // 复制走势数据为 TSV 表格 (可直接粘贴至 Excel)
@@ -2926,12 +3046,16 @@ class RatingChartRenderer {
           this._fullscreenRenderer.destroy();
           this._fullscreenRenderer = null;
         }
+        this._fullscreenOpener?.focus();
       };
       modal.querySelector('#btnFsClose').onclick = closeModal;
       this._fullscreenKeyHandler = event => {
-        if (event.key === 'Escape' && modal.classList.contains('open')) closeModal();
+        if (event.key !== 'Escape' || !modal.classList.contains('open')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeModal();
       };
-      window.addEventListener('keydown', this._fullscreenKeyHandler);
+      window.addEventListener('keydown', this._fullscreenKeyHandler, true);
     }
 
     modal.querySelector('#btnFsExportPng').onclick = () => (this._fullscreenRenderer || this).exportPng('fullscreen_chart');
@@ -2946,10 +3070,12 @@ class RatingChartRenderer {
     const fsContainer = modal.querySelector('#fullscreenChartContainer');
     if (this._fullscreenRenderer) this._fullscreenRenderer.destroy();
     fsContainer.innerHTML = '';
-    const fsRenderer = new RatingChartRenderer(fsContainer, Object.assign({}, this.options, {
-      ptSize: this.options.ptSize,
-      lineWidth: 2.2
-    }));
+    const fsRenderer = new RatingChartRenderer(fsContainer, {
+      ...this.options,
+      lineWidth: 2.2,
+      onBrushRange: this.options.onBrushRange ? bounds => fsRenderer.setOptions(bounds) : null,
+      onResetZoom: () => fsRenderer.setOptions({startKey: null, endKey: null})
+    });
     this._fullscreenRenderer = fsRenderer;
     fsRenderer.setData(this.data);
 
@@ -2963,7 +3089,9 @@ class RatingChartRenderer {
     modal.querySelector('#chkFsPoints').onchange = (e) => fsRenderer.setOptions({ showPoints: e.target.checked });
     modal.querySelector('#chkFsLabels').onchange = (e) => fsRenderer.setOptions({ labelMode: e.target.checked ? 'all' : 'none' });
 
+    this._fullscreenOpener = document.activeElement;
     modal.classList.add('open');
+    modal.querySelector('#btnFsClose').focus();
   }
 
   _buildExportableSvg() {
@@ -2974,7 +3102,7 @@ class RatingChartRenderer {
     const { vx, vy, vw, vh } = computeTightSvgViewBox(this.svg, baseW, baseH, 12);
 
     const clone = this.svg.cloneNode(true);
-    clone.querySelectorAll('.chart-crosshair, .chart-halo-group, .chart-overlay').forEach(el => el.remove());
+    clone.querySelectorAll('.chart-crosshair, .chart-halo-group, .chart-overlay, .chart-brush-rect').forEach(el => el.remove());
     clone.querySelector('#chartCrosshair')?.remove();
     clone.querySelector('#chartHoverHaloGroup')?.remove();
     clone.querySelector('rect[fill="transparent"]')?.remove();
@@ -3831,7 +3959,10 @@ window.GoViewerRatingsChart = {
   createComparison: (container, options) => new ComparisonChartRenderer(container, options),
   buildTimeLabels,
   extractMonthKey,
+  plotTimeKey,
   buildSplinePath,
+  getPlayerColors,
+  cyclePlayerColor,
   iconSvg
 };
 

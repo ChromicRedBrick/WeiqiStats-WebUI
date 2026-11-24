@@ -28,6 +28,17 @@
     <div class="ratings-content ratings-page-content" id="ratingsContent"></div>
   </main>
 
+  <dialog id="ratingsConfirmDialog" class="confirm-dialog" aria-labelledby="ratingsConfirmTitle">
+    <form method="dialog">
+      <div class="modal-header"><h3 id="ratingsConfirmTitle">确认操作</h3></div>
+      <div class="modal-body"><p class="ratings-confirm-message"></p></div>
+      <div class="editor-footer">
+        <button class="btn" type="submit" value="cancel" autofocus>取消</button>
+        <button class="btn btn-gold" type="submit" value="confirm">确定</button>
+      </div>
+    </form>
+  </dialog>
+
   <noscript><p class="ratings-error">本页需要启用 JavaScript 才能加载等级分工作区。</p></noscript>
 
   <script src="viewer-flags.js"></script>

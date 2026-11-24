@@ -27,12 +27,17 @@ let currentTab = 'ranking';
 let currentSystem = 'china';
 let currentMonth = null;
 let systemsList = [];
-let monthsList = [];
 let rankingPage = 1;
 let rankingLimit = 50;
 let candidatePage = 1;
 let candidateLimit = 30;
 let pendingCompareState = null;
+let viewVersion = 0;
+let rankingRequest = 0;
+let comparisonRequest = 0;
+let trendRequest = 0;
+let trendViewEvents = null;
+let rankingComparePlayers = [];
 
 function isStandalonePage() {
   return Boolean(document.body?.classList.contains('ratings-page') && !document.getElementById('ratingsDialog'));
@@ -80,8 +85,7 @@ function buildStandaloneUrl() {
     if (compareViewMode === 'table') url.searchParams.set('cview', 'table');
   }
   if (currentTab === 'trend') {
-    const inputVal = document.getElementById('txtTrendPlayer')?.value.trim();
-    const players = inputVal ? splitTrendPlayerNames(inputVal) : currentTrendPlayers;
+    const players = currentTrendPlayers;
     if (players && players.length > 0) {
       url.searchParams.set('players', players.join(','));
     }
@@ -141,6 +145,24 @@ function playerProfileLinkHtml(playerId, playerName) {
   const name = String(playerName || '').trim();
   const label = name ? `查看${name}的棋手档案` : '查看棋手档案';
   return ` <a class="player-profile-link" href="${esc(href)}" title="查看棋手档案" aria-label="${esc(label)}">档案</a>`;
+}
+
+function confirmRatingsAction(message, confirmLabel = '确定', danger = false) {
+  const editor = window.GoViewerEditor;
+  if (editor?.askConfirm) {
+    return editor.askConfirm({title: '确认操作', message, confirmLabel, danger});
+  }
+  const dialog = document.getElementById('ratingsConfirmDialog');
+  dialog.querySelector('.ratings-confirm-message').textContent = message;
+  const confirmButton = dialog.querySelector('[value="confirm"]');
+  confirmButton.textContent = confirmLabel;
+  confirmButton.classList.toggle('btn-danger', danger);
+  confirmButton.classList.toggle('btn-gold', !danger);
+  dialog.returnValue = '';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), {once: true});
+    dialog.showModal();
+  });
 }
 
 function setRatingsStatus(message, isError = false) {
@@ -208,8 +230,7 @@ async function loadSystems() {
 async function loadMonths(systemId) {
   try {
     const res = await apiGet(`/api/ratings/months?system=${encodeURIComponent(systemId)}`);
-    monthsList = res.months || [];
-    return monthsList;
+    return res.months || [];
   } catch (err) {
     console.error('加载月份列表失败:', err);
     return [];
@@ -243,7 +264,14 @@ function renderTabs() {
   });
 }
 
-async function switchTab(tabId) {
+async function switchTab(tabId, targetPlayer = '') {
+  const version = ++viewVersion;
+  trendViewEvents?.abort();
+  trendViewEvents = null;
+  currentChartRenderer?.destroy();
+  currentChartRenderer = null;
+  currentChartData = null;
+  currentComparisonRenderer = null;
   currentTab = tabId;
   setRatingsStatus('');
   renderTabs();
@@ -257,7 +285,7 @@ async function switchTab(tabId) {
   } else if (tabId === 'compare') {
     await renderCompareView();
   } else if (tabId === 'trend') {
-    await renderTrendView();
+    await renderTrendView(targetPlayer);
   } else if (tabId === 'import') {
     await renderImportView();
   } else if (tabId === 'candidates') {
@@ -265,16 +293,17 @@ async function switchTab(tabId) {
   } else if (tabId === 'batches') {
     await renderBatchesView();
   }
-  syncWorkspaceUrlState();
+  if (version === viewVersion) syncWorkspaceUrlState();
 }
 
 // 1. 月度榜单视图
 async function renderRankingView() {
   const content = document.getElementById('ratingsContent');
-  const systems = await loadSystems();
-  const months = await loadMonths(currentSystem);
-  if (!currentMonth && months.length > 0) {
-    currentMonth = months[months.length - 1].month_key;
+  const version = viewVersion;
+  const [systems, months] = await Promise.all([loadSystems(), loadMonths(currentSystem)]);
+  if (version !== viewVersion) return;
+  if (!months.some(m => m.month_key === currentMonth)) {
+    currentMonth = months.at(-1)?.month_key ?? null;
   }
 
   const isGoRatings = currentSystem === 'goratings';
@@ -286,11 +315,16 @@ async function renderRankingView() {
             ${systems.map(s => `<option value="${esc(s.id)}" ${s.id === currentSystem ? 'selected' : ''}>${esc(s.display_name)} (${s.month_count}${s.id === 'goratings' ? '期' : '个月'})</option>`).join('')}
           </select>
         </label>
-        <label>${isGoRatings ? '期次' : '月份'}
-          <select id="selRankingMonth">
-            ${months.slice().reverse().map(m => `<option value="${m.month_key}" ${m.month_key === currentMonth ? 'selected' : ''}>${esc(m.month_str)} (${m.summary?.valid_entries || m.summary?.total_entries || 0}人)</option>`).join('')}
-          </select>
-        </label>
+        <div class="ratings-month-filter">
+          <label for="selRankingMonth">${isGoRatings ? '期次' : '月份'}</label>
+          <span class="ratings-month-stepper">
+            <button class="btn btn-sm ratings-step-btn" id="btnRankPrevMonth" type="button" title="上一期" aria-label="上一期">‹</button>
+            <select id="selRankingMonth">
+              ${months.slice().reverse().map(m => `<option value="${m.month_key}" ${m.month_key === currentMonth ? 'selected' : ''}>${esc(m.month_str)} (${m.summary?.valid_entries || m.summary?.total_entries || 0}人)</option>`).join('')}
+            </select>
+            <button class="btn btn-sm ratings-step-btn" id="btnRankNextMonth" type="button" title="下一期" aria-label="下一期">›</button>
+          </span>
+        </div>
         <label class="ratings-search-label">搜索
           <input type="search" id="txtRankingSearch" placeholder="搜索棋手姓名${isGoRatings ? ' / 英文名' : ''}" autocomplete="off">
         </label>
@@ -299,7 +333,10 @@ async function renderRankingView() {
         </label>
         <button class="btn btn-sm" id="btnExportCurrentMonthCsv" type="button" title="导出当前体系该期次等级分 CSV 表">${chartIcon('download')} 导出 CSV</button>
       </div>
-      <div class="ratings-stats-badge" id="rankingSnapshotSummary"></div>
+      <div class="ratings-ranking-actions">
+        <div class="ratings-stats-badge" id="rankingSnapshotSummary"></div>
+        <button type="button" class="btn btn-sm" id="btnOpenRankingCompare" hidden></button>
+      </div>
     </div>
     ${isGoRatings ? `<div class="ratings-info-banner" style="margin-bottom: 0.75rem;"><span class="info-icon">${chartIcon('info')}</span><span>GoRatings 采用 WHR 全历史模型按已收录对局估计棋手实力，分值为全对局回算估值。</span></div>` : ''}
     <div class="ratings-table-container" id="rankingTableWrap">
@@ -308,21 +345,41 @@ async function renderRankingView() {
     <div class="ratings-pager" id="rankingPager"></div>
   `;
 
-  document.getElementById('selRankingSystem').onchange = async (e) => {
-    currentSystem = e.target.value;
-    const ms = await loadMonths(currentSystem);
-    currentMonth = ms.length > 0 ? ms[ms.length - 1].month_key : null;
+  document.getElementById('selRankingSystem').onchange = (event) => {
+    currentSystem = event.target.value;
+    currentMonth = null;
     rankingPage = 1;
-    await renderRankingView();
-    syncWorkspaceUrlState();
+    switchTab('ranking');
   };
 
-  document.getElementById('selRankingMonth').onchange = (e) => {
-    currentMonth = Number(e.target.value);
+  const monthSelect = document.getElementById('selRankingMonth');
+  const prevMonth = document.getElementById('btnRankPrevMonth');
+  const nextMonth = document.getElementById('btnRankNextMonth');
+  const monthIndex = () => months.findIndex(m => m.month_key === currentMonth);
+  const syncMonthButtons = () => {
+    const index = monthIndex();
+    prevMonth.disabled = index <= 0;
+    nextMonth.disabled = index < 0 || index >= months.length - 1;
+  };
+  const selectMonth = (month) => {
+    currentMonth = month;
+    monthSelect.value = String(month);
     rankingPage = 1;
+    syncMonthButtons();
     syncWorkspaceUrlState();
     fetchAndDisplayRanking();
   };
+  syncMonthButtons();
+  monthSelect.onchange = () => selectMonth(Number(monthSelect.value));
+  prevMonth.onclick = () => selectMonth(months[monthIndex() - 1].month_key);
+  nextMonth.onclick = () => selectMonth(months[monthIndex() + 1].month_key);
+
+  document.getElementById('btnOpenRankingCompare').onclick = () => {
+    currentTrendPlayers = [...rankingComparePlayers];
+    currentChartMode = currentTrendPlayers.length === 2 ? 'two-diff' : 'multi-rating';
+    switchTab('trend');
+  };
+  syncRankingComparison();
 
   document.getElementById('btnExportCurrentMonthCsv').onclick = () => {
     if (!currentMonth) return;
@@ -333,6 +390,7 @@ async function renderRankingView() {
   document.getElementById('txtRankingSearch').oninput = (e) => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
+      if (version !== viewVersion) return;
       rankingPage = 1;
       fetchAndDisplayRanking();
     }, 300);
@@ -346,11 +404,31 @@ async function renderRankingView() {
   await fetchAndDisplayRanking();
 }
 
+function syncRankingComparison() {
+  const openButton = document.getElementById('btnOpenRankingCompare');
+  if (!openButton) return;
+  openButton.hidden = rankingComparePlayers.length === 0;
+  openButton.textContent = `查看走势对比（${rankingComparePlayers.length} 人）`;
+  document.querySelectorAll('.btn-rank-add-compare').forEach(button => {
+    const selected = rankingComparePlayers.includes(button.dataset.player);
+    button.classList.toggle('is-added', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    button.textContent = selected ? '已选' : '+ 对比';
+  });
+}
+
 async function fetchAndDisplayRanking() {
   const tableWrap = document.getElementById('rankingTableWrap');
   const summaryBadge = document.getElementById('rankingSnapshotSummary');
   const pager = document.getElementById('rankingPager');
-  if (!tableWrap || !currentMonth) return;
+  if (!tableWrap) return;
+  if (!currentMonth) {
+    tableWrap.innerHTML = '<div class="ratings-empty">暂无榜单。</div>';
+    return;
+  }
+  const request = ++rankingRequest;
+  const version = viewVersion;
+  const isCurrent = () => version === viewVersion && request === rankingRequest;
 
   const searchVal = document.getElementById('txtRankingSearch')?.value.trim() || '';
   const validOnly = document.getElementById('chkValidOnly')?.checked ? '1' : '0';
@@ -362,6 +440,7 @@ async function fetchAndDisplayRanking() {
     if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
 
     const data = await apiGet(url);
+    if (!isCurrent()) return;
     const snap = data.snapshot;
 
     if (summaryBadge && snap) {
@@ -384,15 +463,20 @@ async function fetchAndDisplayRanking() {
       const subName = isGoRatings && e.name_en && e.name_en !== e.player_clean
         ? `<span class="player-orig-sub" title="英文名">${esc(e.name_en)}</span>`
         : (e.player_orig !== e.player_clean ? `<span class="player-orig-sub" title="榜单原文">${esc(e.player_orig)}</span>` : '');
+      const rankNum = Number(e.rank);
+      const rankHtml = Number.isInteger(rankNum) && rankNum >= 1 && rankNum <= 3
+        ? `<span class="rank-pill rank-pill--${rankNum}">${rankNum}</span>`
+        : esc(e.rank ?? '—');
       return `
       <tr>
-        <td class="cell-rank">${e.rank}</td>
+        <td class="cell-rank">${rankHtml}</td>
         <td class="cell-player">${flagHtml}<a href="javascript:void(0)" class="player-link" data-player="${esc(e.player_clean)}" title="查看该棋手走势">${esc(e.player_clean)}</a>${subName}${playerProfileLinkHtml(e.player_id, e.player_clean)}</td>
         <td class="cell-dan">${esc(isGoRatings ? (e.country || '-') : (e.dan || '-'))}</td>
-        <td class="cell-age">${esc(e.age !== null && e.age !== undefined ? e.age : '-')}</td>
+        <td class="cell-age col-age">${esc(e.age !== null && e.age !== undefined ? e.age : '-')}</td>
         <td class="cell-rating"><strong>${e.public_rating !== null && e.public_rating !== undefined ? e.public_rating.toFixed(1) : '-'}</strong></td>
         <td class="cell-diff">${formatDiff(e.rating_change, false)}</td>
         <td class="cell-diff">${formatDiff(e.rank_change, true)}</td>
+        <td class="cell-rank-actions"><button type="button" class="btn btn-sm btn-rank-add-compare" data-player="${esc(e.player_clean)}" aria-label="选择 ${esc(e.player_clean)} 加入走势对比">+ 对比</button></td>
       </tr>
     `;
     }).join('');
@@ -404,10 +488,11 @@ async function fetchAndDisplayRanking() {
             <th>名次</th>
             <th>棋手</th>
             <th>${isGoRatings ? '国家/地区' : '段位'}</th>
-            <th>年龄</th>
-            <th>${isGoRatings ? 'WHR 估值' : '公示分'}</th>
-            <th>分值变动</th>
-            <th>名次变动</th>
+            <th class="col-num col-age">年龄</th>
+            <th class="col-num">${isGoRatings ? 'WHR 估值' : '公示分'}</th>
+            <th class="col-num">分值变动</th>
+            <th class="col-num">名次变动</th>
+            <th>走势对比</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
@@ -417,6 +502,16 @@ async function fetchAndDisplayRanking() {
     tableWrap.querySelectorAll('.player-link').forEach(link => {
       link.onclick = () => openPlayerTrend(link.dataset.player);
     });
+    tableWrap.querySelectorAll('.btn-rank-add-compare').forEach(button => {
+      button.onclick = () => {
+        const name = button.dataset.player;
+        rankingComparePlayers = rankingComparePlayers.includes(name)
+          ? rankingComparePlayers.filter(player => player !== name)
+          : [...rankingComparePlayers, name];
+        syncRankingComparison();
+      };
+    });
+    syncRankingComparison();
 
     // Pager
     const totalPages = Math.ceil(data.total_entries / rankingLimit) || 1;
@@ -432,25 +527,25 @@ async function fetchAndDisplayRanking() {
       if (rankingPage < totalPages) { rankingPage++; fetchAndDisplayRanking(); }
     };
   } catch (err) {
-    tableWrap.innerHTML = `<div class="ratings-error">读取失败：${esc(err.message)}</div>`;
+    if (isCurrent()) tableWrap.innerHTML = `<div class="ratings-error">读取失败：${esc(err.message)}</div>`;
   }
 }
 
 // 2. 月度对比视图（支持可视化三大图表与数据明细表切换）
 async function renderCompareView() {
   const content = document.getElementById('ratingsContent');
-  const systems = await loadSystems();
-  const months = await loadMonths(currentSystem);
+  const version = viewVersion;
+  const [systems, months] = await Promise.all([loadSystems(), loadMonths(currentSystem)]);
+  if (version !== viewVersion) return;
 
   const urlTarget = pendingCompareState?.target;
   const urlBase = pendingCompareState?.base;
   const urlCat = pendingCompareState?.cat || 'all';
-  const defaultTarget = (urlTarget && months.some(m => m.month_key === urlTarget))
-    ? urlTarget
-    : (months.length > 0 ? months[months.length - 1].month_key : 202603);
-  const defaultBase = (urlBase && months.some(m => m.month_key === urlBase) && urlBase !== defaultTarget)
+  const defaultTarget = months.some(m => m.month_key === urlTarget) ? urlTarget : months.at(-1)?.month_key;
+  const targetIndex = months.findIndex(m => m.month_key === defaultTarget);
+  const defaultBase = urlBase !== defaultTarget && months.some(m => m.month_key === urlBase)
     ? urlBase
-    : (months.length > 1 ? months[months.length - 2].month_key : (months.length > 0 ? months[0].month_key : 202602));
+    : (months[targetIndex - 1] || months[targetIndex + 1])?.month_key;
   pendingCompareState = null;
 
   content.innerHTML = `
@@ -466,11 +561,16 @@ async function renderCompareView() {
             ${months.slice().reverse().map(m => `<option value="${m.month_key}" ${m.month_key === defaultBase ? 'selected' : ''}>${esc(m.month_str)}</option>`).join('')}
           </select>
         </label>
+        <button class="btn btn-sm" id="btnSwapCompareMonths" type="button" title="互换基准期与目标期" aria-label="互换基准期与目标期">⇄</button>
         <label>${currentSystem === 'goratings' ? '目标期' : '目标月'}
           <select id="selCompareTarget">
             ${months.slice().reverse().map(m => `<option value="${m.month_key}" ${m.month_key === defaultTarget ? 'selected' : ''}>${esc(m.month_str)}</option>`).join('')}
           </select>
         </label>
+        <span class="compare-quick-spans" role="group" aria-label="快捷对比跨度">
+          <button class="btn btn-sm btn-compare-span" data-span="mom" type="button" title="目标期与上一期环比">环比上期</button>
+          <button class="btn btn-sm btn-compare-span" data-span="yoy" type="button" title="目标期与一年前同比">同比去年</button>
+        </span>
         <label>分类
           <select id="selCompareCategory">
             <option value="all" ${urlCat === 'all' ? 'selected' : ''}>全部分类</option>
@@ -489,27 +589,54 @@ async function renderCompareView() {
         <button class="view-toggle-btn ${compareViewMode === 'table' ? 'active' : ''}" id="btnCompareToggleTable" type="button">${chartIcon('table')} 明细数据</button>
       </div>
     </div>
+    <p id="compareStatus" class="ratings-load-status" role="status" hidden></p>
     <div id="compareSummaryCards" class="ratings-summary-cards"></div>
     <div id="compareChartsContainer" class="compare-charts-section" style="display: ${compareViewMode === 'charts' ? 'block' : 'none'};"></div>
     <div class="ratings-table-container" id="compareTableWrap" style="display: ${compareViewMode === 'table' ? 'block' : 'none'};"></div>
   `;
 
-  document.getElementById('selCompareSystem').onchange = async (e) => {
-    currentSystem = e.target.value;
-    await renderCompareView();
-    syncWorkspaceUrlState();
+  document.getElementById('selCompareSystem').onchange = event => {
+    currentSystem = event.target.value;
+    switchTab('compare');
   };
 
-  document.getElementById('btnRunCompare').onclick = () => {
+  const baseSelect = document.getElementById('selCompareBase');
+  const targetSelect = document.getElementById('selCompareTarget');
+  const swap = document.getElementById('btnSwapCompareMonths');
+  const compareButton = document.getElementById('btnRunCompare');
+  const shortcuts = [...content.querySelectorAll('.btn-compare-span')];
+  const updateShortcuts = () => {
+    const target = Number(targetSelect.value);
+    const index = months.findIndex(m => m.month_key === target);
+    const previous = index > 0 ? months[index - 1].month_key : null;
+    const yearAgo = previousYearSnapshot(months, target);
+    for (const [button, key] of [[shortcuts[0], previous], [shortcuts[1], yearAgo]]) {
+      button.disabled = !key;
+      button.dataset.base = key || '';
+    }
+    swap.disabled = months.length < 2 || baseSelect.value === targetSelect.value;
+    compareButton.disabled = months.length < 2;
+  };
+  const refresh = () => {
+    updateShortcuts();
     syncWorkspaceUrlState();
     runComparison();
   };
-  document.getElementById('selCompareCategory').onchange = () => {
-    syncWorkspaceUrlState();
-    runComparison();
+  compareButton.onclick = refresh;
+  document.getElementById('selCompareCategory').onchange = refresh;
+  baseSelect.onchange = refresh;
+  targetSelect.onchange = refresh;
+  swap.onclick = () => {
+    [baseSelect.value, targetSelect.value] = [targetSelect.value, baseSelect.value];
+    refresh();
   };
-  document.getElementById('selCompareBase').onchange = () => syncWorkspaceUrlState();
-  document.getElementById('selCompareTarget').onchange = () => syncWorkspaceUrlState();
+  shortcuts.forEach(button => {
+    button.onclick = () => {
+      baseSelect.value = button.dataset.base;
+      refresh();
+    };
+  });
+  updateShortcuts();
 
   document.getElementById('btnCompareToggleCharts').onclick = () => {
     compareViewMode = 'charts';
@@ -530,7 +657,36 @@ async function renderCompareView() {
   };
 
   await runComparison();
-  syncWorkspaceUrlState();
+  if (version === viewVersion) syncWorkspaceUrlState();
+}
+
+function previousYearSnapshot(months, target) {
+  const key = String(target);
+  if (key.length === 6) return months.find(m => m.month_key === target - 100)?.month_key;
+  if (key.length !== 8) return null;
+  const year = Number(key.slice(0, 4)) - 1;
+  const month = Number(key.slice(4, 6));
+  const day = Math.min(Number(key.slice(6)), new Date(Date.UTC(year, month, 0)).getUTCDate());
+  const cutoff = Date.UTC(year, month - 1, day);
+  const week = 7 * 86400000;
+  let best = null;
+  let distance = week + 1;
+  for (const {month_key: snapshot} of months) {
+    const date = String(snapshot);
+    if (date.length !== 8 || snapshot >= target) continue;
+    const delta = Math.abs(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6))) - cutoff);
+    if (delta <= week && delta < distance) {
+      best = snapshot;
+      distance = delta;
+    }
+  }
+  return best;
+}
+
+function setPanelStatus(status, message = '', error = false) {
+  status.textContent = message;
+  status.hidden = !message;
+  status.classList.toggle('ratings-error', error);
 }
 
 async function runComparison() {
@@ -541,53 +697,76 @@ async function runComparison() {
   const targetVal = Number(document.getElementById('selCompareTarget').value);
   const catFilter = document.getElementById('selCompareCategory').value;
 
-  if (baseVal === targetVal) {
-    if (tableWrap) tableWrap.innerHTML = '<div class="ratings-error">基准月与目标月不能相同。</div>';
-    if (chartsContainer) chartsContainer.innerHTML = '<div class="ratings-error">基准月与目标月不能相同。</div>';
+  const request = ++comparisonRequest;
+  const version = viewVersion;
+  const isCurrent = () => version === viewVersion && request === comparisonRequest;
+  const status = document.getElementById('compareStatus');
+  const setBusy = (busy) => {
+    for (const panel of [chartsContainer, tableWrap]) {
+      panel.classList.toggle('is-loading', busy);
+      panel.setAttribute('aria-busy', String(busy));
+      panel.inert = busy;
+    }
+  };
+  const highlightCategory = () => {
+    cardsWrap.querySelectorAll('.stat-card').forEach(card => {
+      const selected = card.dataset.cat === catFilter;
+      card.classList.toggle('is-active', selected);
+      card.setAttribute('aria-pressed', String(selected));
+    });
+  };
+  highlightCategory();
+  if (!baseVal || !targetVal || baseVal === targetVal) {
+    setBusy(false);
+    setPanelStatus(status, baseVal === targetVal && baseVal ? '请选择不同的基准期与目标期。' : '至少需要两期榜单才能对比。', true);
     return;
   }
 
-  if (tableWrap) tableWrap.innerHTML = '<div class="ratings-loading">正在计算月度对比…</div>';
-
+  setBusy(true);
+  setPanelStatus(status, '正在计算对比…');
   try {
     const data = await apiGet(`/api/ratings/compare?system=${encodeURIComponent(currentSystem)}&base=${baseVal}&target=${targetVal}`);
+    if (!isCurrent()) return;
+    setPanelStatus(status);
     const s = data.summary;
 
     if (cardsWrap) {
       cardsWrap.innerHTML = `
-        <div class="stat-card" data-cat="all">
-          <div class="stat-number">${s.total_players_compared}</div>
-          <div class="stat-title">对比棋手总数</div>
-        </div>
-        <div class="stat-card stat-card--up" data-cat="up">
-          <div class="stat-number">${s.up_count}</div>
-          <div class="stat-title">分值上涨</div>
-        </div>
-        <div class="stat-card stat-card--down" data-cat="down">
-          <div class="stat-number">${s.down_count}</div>
-          <div class="stat-title">分值下跌</div>
-        </div>
-        <div class="stat-card" data-cat="equal">
-          <div class="stat-number">${s.equal_count}</div>
-          <div class="stat-title">分值持平</div>
-        </div>
-        <div class="stat-card stat-card--new" data-cat="new">
-          <div class="stat-number">${s.new_count}</div>
-          <div class="stat-title">新上榜</div>
-        </div>
-        <div class="stat-card stat-card--dropped" data-cat="dropped">
-          <div class="stat-number">${s.dropped_count}</div>
-          <div class="stat-title">退出榜单</div>
-        </div>
-        <div class="stat-card stat-card--excluded" data-cat="excluded">
-          <div class="stat-number">${s.excluded_count}</div>
-          <div class="stat-title">排除记录</div>
-        </div>
+        <button type="button" class="stat-card" data-cat="all">
+          <span class="stat-number">${s.total_players_compared}</span>
+          <span class="stat-title">对比棋手总数</span>
+        </button>
+        <button type="button" class="stat-card stat-card--up" data-cat="up">
+          <span class="stat-number">${s.up_count}</span>
+          <span class="stat-title">分值上涨</span>
+        </button>
+        <button type="button" class="stat-card stat-card--down" data-cat="down">
+          <span class="stat-number">${s.down_count}</span>
+          <span class="stat-title">分值下跌</span>
+        </button>
+        <button type="button" class="stat-card" data-cat="equal">
+          <span class="stat-number">${s.equal_count}</span>
+          <span class="stat-title">分值持平</span>
+        </button>
+        <button type="button" class="stat-card stat-card--new" data-cat="new">
+          <span class="stat-number">${s.new_count}</span>
+          <span class="stat-title">新上榜</span>
+        </button>
+        <button type="button" class="stat-card stat-card--dropped" data-cat="dropped">
+          <span class="stat-number">${s.dropped_count}</span>
+          <span class="stat-title">退出榜单</span>
+        </button>
+        <button type="button" class="stat-card stat-card--excluded" data-cat="excluded">
+          <span class="stat-number">${s.excluded_count}</span>
+          <span class="stat-title">排除记录</span>
+        </button>
       `;
 
+      highlightCategory();
       cardsWrap.querySelectorAll('.stat-card').forEach(card => {
         card.onclick = () => {
           document.getElementById('selCompareCategory').value = card.dataset.cat;
+          syncWorkspaceUrlState();
           runComparison();
         };
       });
@@ -595,10 +774,12 @@ async function runComparison() {
 
     // 渲染月度对比三大分析图表
     if (chartsContainer) {
-      currentComparisonRenderer = window.GoViewerRatingsChart?.createComparison(chartsContainer, {
-        topN: 15,
-        activeSubChart: 'all'
-      });
+      if (currentComparisonRenderer?.container !== chartsContainer) {
+        currentComparisonRenderer = window.GoViewerRatingsChart?.createComparison(chartsContainer, {
+          topN: 15,
+          activeSubChart: 'all'
+        });
+      }
       currentComparisonRenderer?.setData(data);
     }
 
@@ -653,7 +834,9 @@ async function runComparison() {
       link.onclick = () => openPlayerTrend(link.dataset.player);
     });
   } catch (err) {
-    if (tableWrap) tableWrap.innerHTML = `<div class="ratings-error">对比失败：${esc(err.message)}</div>`;
+    if (isCurrent()) setPanelStatus(status, `对比失败：${err.message}`, true);
+  } finally {
+    if (isCurrent()) setBusy(false);
   }
 }
 
@@ -686,7 +869,11 @@ let currentComparisonRenderer = null;
 
 async function renderTrendView(targetPlayer = '') {
   const content = document.getElementById('ratingsContent');
+  const version = viewVersion;
   const systems = await loadSystems();
+  if (version !== viewVersion) return;
+  trendViewEvents = new AbortController();
+  const {signal} = trendViewEvents;
 
   if (targetPlayer) {
     currentTrendPlayers = splitTrendPlayerNames(targetPlayer);
@@ -694,8 +881,6 @@ async function renderTrendView(targetPlayer = '') {
   if (!currentTrendPlayers || currentTrendPlayers.length === 0) {
     currentTrendPlayers = ['柯洁'];
   }
-
-  const initialInputValue = currentTrendPlayers.join(', ');
 
   content.innerHTML = `
     <!-- 工具栏与经典预设集成行 -->
@@ -706,43 +891,26 @@ async function renderTrendView(targetPlayer = '') {
             ${systems.map(s => `<option value="${esc(s.id)}" ${s.id === currentSystem ? 'selected' : ''}>${esc(s.display_name)}</option>`).join('')}
           </select>
         </label>
-        <label class="ratings-search-label">棋手
-          <input type="search" id="txtTrendPlayer" list="trendPlayerList" value="${esc(initialInputValue)}" placeholder="姓名/英文名，多人逗号隔开" autocomplete="off">
-          <datalist id="trendPlayerList">
-            <option value="柯洁">
-            <option value="丁浩">
-            <option value="李轩豪">
-            <option value="王星昊">
-            <option value="申真谞">
-            <option value="朴廷桓">
-            <option value="卞相壹">
-            <option value="申旻埈">
-            <option value="杨鼎新">
-            <option value="党毅飞">
-            <option value="辜梓豪">
-            <option value="连笑">
-            <option value="崔精">
-            <option value="一力辽">
-            <option value="芝野虎丸">
-            <option value="李昌镐">
-            <option value="李世石">
-          </datalist>
-        </label>
-        <button class="btn btn-gold" id="btnSearchTrend" type="button">
-          <span class="btn-trend-label">查询</span>
-        </button>
-      </div>
-
-      <!-- 经典对决与群雄对比快捷预设栏 -->
-      <div class="trend-quick-presets-bar">
-        <span class="trend-section-label">${chartIcon('zap', 13)} 预设:</span>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 申真谞" data-mode="two-diff">${chartIcon('trend', 13)} 柯申对决</button>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 丁浩" data-mode="two-diff">${presetFlag('CHN')} 柯丁双雄</button>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 李轩豪, 丁浩" data-mode="multi-rating">${presetFlag('CHN')} 中国三甲</button>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-sys="korea" data-players="申真谞, 朴廷桓, 卞相壹" data-mode="multi-rating">${presetFlag('KOR')} 韩国三甲</button>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 申真谞, 丁浩, 李轩豪, 朴廷桓" data-mode="multi-rating">${chartIcon('users', 13)} 中韩五强</button>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-sys="goratings" data-players="李昌镐, 李世石, 柯洁, 申真谞" data-mode="multi-rating">${chartIcon('trend', 13)} GoRatings 跨时代</button>
-        <button type="button" class="btn btn-sm btn-preset-pill" data-sys="goratings" data-players="柯洁, 申真谞" data-mode="two-diff">${chartIcon('trend', 13)} WHR 柯申分差</button>
+        <form id="trendPlayerForm" class="ratings-player-search">
+          <label class="ratings-search-label" for="txtTrendPlayer">添加棋手</label>
+          <input type="search" id="txtTrendPlayer" class="ratings-input" placeholder="姓名或英文名" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="trendPlayerOptions" aria-expanded="false">
+          <div id="trendPlayerOptions" class="ratings-player-options" role="listbox" aria-label="棋手搜索结果" hidden></div>
+          <button class="btn btn-sm" id="btnAddTrendPlayer" type="submit">添加</button>
+        </form>
+        <details id="trendPresets" class="ratings-style-popover">
+          <summary class="btn btn-sm">预设 ▾</summary>
+          <div class="trend-quick-presets-bar">
+            <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 申真谞" data-mode="two-diff">${chartIcon('trend', 13)} 柯申对决</button>
+            <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 丁浩" data-mode="two-diff">${presetFlag('CHN')} 柯丁双雄</button>
+            <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 李轩豪, 丁浩" data-mode="multi-rating">${presetFlag('CHN')} 中国三甲</button>
+            <button type="button" class="btn btn-sm btn-preset-pill" data-sys="korea" data-players="申真谞, 朴廷桓, 卞相壹" data-mode="multi-rating">${presetFlag('KOR')} 韩国三甲</button>
+            <button type="button" class="btn btn-sm btn-preset-pill" data-players="柯洁, 申真谞, 丁浩, 李轩豪, 朴廷桓" data-mode="multi-rating">${chartIcon('users', 13)} 中韩五强</button>
+            <button type="button" class="btn btn-sm btn-preset-pill" data-sys="goratings" data-players="李昌镐, 李世石, 柯洁, 申真谞" data-mode="multi-rating">${chartIcon('trend', 13)} GoRatings 跨时代</button>
+            <button type="button" class="btn btn-sm btn-preset-pill" data-sys="goratings" data-players="柯洁, 申真谞" data-mode="two-diff">${chartIcon('trend', 13)} WHR 柯申分差</button>
+            <span id="trendCustomPresets" class="trend-custom-presets"></span>
+            <button type="button" class="btn btn-sm btn-save-preset" id="btnSaveCustomPreset">保存当前预设</button>
+          </div>
+        </details>
       </div>
 
       <div id="trendSystemPills" class="trend-system-pills"></div>
@@ -750,18 +918,15 @@ async function renderTrendView(targetPlayer = '') {
 
     <!-- 活跃棋手与热门点选融合栏 -->
     <div class="trend-players-unified-bar" id="trendActivePlayersBar">
-      <span class="trend-section-label">对比棋手:</span>
+      <span class="trend-section-label">对比棋手</span>
       <div class="trend-active-chips-list" id="trendActiveChipsList"></div>
-      <div class="trend-add-player-wrap">
-        <input type="text" id="txtAddTrendPlayer" placeholder="+ 输入姓名" list="trendPlayerList" class="ratings-input ratings-input-sm">
-        <button type="button" class="btn btn-sm" id="btnAddTrendPlayer">添加</button>
-        <button type="button" class="btn btn-sm" id="btnClearTrendPlayers">清空</button>
-      </div>
+      <button type="button" class="btn btn-sm" id="btnClearTrendPlayers">清空</button>
       <span class="trend-bar-divider"></span>
-      <span class="trend-section-label">热门点选:</span>
+      <span class="trend-section-label">热门棋手</span>
       <div class="trend-candidate-chips-list" id="trendCandidateChipsList"></div>
     </div>
     <div id="trendNotice" class="ratings-notice-wrap"></div>
+    <p id="trendStatus" class="ratings-load-status" role="status" hidden></p>
     <div id="trendCardsWrap" class="ratings-summary-cards"></div>
 
     <!-- 图表容器与操作控制条 -->
@@ -776,12 +941,12 @@ async function renderTrendView(targetPlayer = '') {
             <select id="selChartMode"></select>
           </label>
           <div class="trend-time-presets-bar" id="goratingsDiffAlignWrap" style="display: none;">
-            <span class="trend-time-label">采样:</span>
+            <span class="trend-time-label">采样</span>
             <button type="button" class="btn btn-sm btn-time-pill btn-align-pill ${goratingsDiffAlign !== 'union' ? 'active' : ''}" data-align="weekly" title="按自然周（周五）均匀采样">自然周</button>
             <button type="button" class="btn btn-sm btn-time-pill btn-align-pill ${goratingsDiffAlign === 'union' ? 'active' : ''}" data-align="union" title="取两位棋手所有对局日并集并前值延续">对局日并集</button>
           </div>
           <div class="trend-time-presets-bar" id="trendTimePresetsBar">
-            <span class="trend-time-label">区间:</span>
+            <span class="trend-time-label">区间</span>
             <button type="button" class="btn btn-sm btn-time-pill ${currentTimePreset === 'all' ? 'active' : ''}" data-range="all">全部</button>
             <button type="button" class="btn btn-sm btn-time-pill ${currentTimePreset === '1y' ? 'active' : ''}" data-range="1y">近1年</button>
             <button type="button" class="btn btn-sm btn-time-pill ${currentTimePreset === '2y' ? 'active' : ''}" data-range="2y">近2年</button>
@@ -796,42 +961,49 @@ async function renderTrendView(targetPlayer = '') {
           </label>
         </div>
         <div class="ratings-chart-controls-right">
-          <label class="chart-only-ctrl">点大小
-            <select id="selChartPointSize" class="ratings-select">
-              <option value="auto" ${chartPtSize === 'auto' ? 'selected' : ''}>自动</option>
-              <option value="3" ${chartPtSize === '3' ? 'selected' : ''}>极小 (3px)</option>
-              <option value="5" ${chartPtSize === '5' ? 'selected' : ''}>小 (5px)</option>
-              <option value="7" ${chartPtSize === '7' ? 'selected' : ''}>中 (7px)</option>
-              <option value="9" ${chartPtSize === '9' ? 'selected' : ''}>大 (9px)</option>
-            </select>
-          </label>
-          <label class="ratings-checkbox-label chart-only-ctrl">
-            <input type="checkbox" id="chkChartPoints" ${chartShowPoints ? 'checked' : ''}> 数据点
-          </label>
-          <label class="chart-only-ctrl">标注
-            <select id="selChartLabelMode" class="ratings-select">
-              <option value="auto" ${chartLabelMode === 'auto' ? 'selected' : ''}>自动</option>
-              <option value="endpoint" ${chartLabelMode === 'endpoint' ? 'selected' : ''}>仅端点</option>
-              <option value="extreme" ${chartLabelMode === 'extreme' ? 'selected' : ''}>端点与极值</option>
-              <option value="all" ${chartLabelMode === 'all' ? 'selected' : ''}>全部</option>
-              <option value="none" ${chartLabelMode === 'none' ? 'selected' : ''}>不显示</option>
-            </select>
-          </label>
-          <label class="chart-only-ctrl">密度
-            <select id="selChartDensity" class="ratings-select" title="长跨度日期轴可只看概览点或全部原始点">
-              <option value="auto" ${chartSampling === 'auto' ? 'selected' : ''}>自动</option>
-              <option value="all" ${chartSampling === 'all' ? 'selected' : ''}>全部</option>
-            </select>
-          </label>
-          <label class="ratings-checkbox-label chart-only-ctrl">
-            <input type="checkbox" id="chkChartSmooth" ${chartSmooth ? 'checked' : ''}> 平滑曲线
-          </label>
-          <label class="ratings-checkbox-label chart-only-ctrl">
-            <input type="checkbox" id="chkChartGrid" ${chartShowGrid ? 'checked' : ''}> 网格
-          </label>
-          <label class="ratings-checkbox-label chart-only-ctrl">
-            <input type="checkbox" id="chkChartSparse" ${chartSparseX ? 'checked' : ''}> 精简横轴
-          </label>
+          <details class="ratings-style-popover chart-only-ctrl" id="ratingsStylePopover">
+            <summary class="btn btn-sm">显示设置 ▾</summary>
+            <div class="ratings-style-menu">
+              <label class="chart-only-ctrl">点大小
+                <select id="selChartPointSize" class="ratings-select">
+                  <option value="auto" ${chartPtSize === 'auto' ? 'selected' : ''}>自动</option>
+                  <option value="3" ${chartPtSize === '3' ? 'selected' : ''}>极小 (3px)</option>
+                  <option value="5" ${chartPtSize === '5' ? 'selected' : ''}>小 (5px)</option>
+                  <option value="7" ${chartPtSize === '7' ? 'selected' : ''}>中 (7px)</option>
+                  <option value="9" ${chartPtSize === '9' ? 'selected' : ''}>大 (9px)</option>
+                </select>
+              </label>
+              <label class="chart-only-ctrl">标注
+                <select id="selChartLabelMode" class="ratings-select">
+                  <option value="auto" ${chartLabelMode === 'auto' ? 'selected' : ''}>自动</option>
+                  <option value="endpoint" ${chartLabelMode === 'endpoint' ? 'selected' : ''}>仅端点</option>
+                  <option value="extreme" ${chartLabelMode === 'extreme' ? 'selected' : ''}>端点与极值</option>
+                  <option value="all" ${chartLabelMode === 'all' ? 'selected' : ''}>全部</option>
+                  <option value="none" ${chartLabelMode === 'none' ? 'selected' : ''}>不显示</option>
+                </select>
+              </label>
+              <label class="chart-only-ctrl">密度
+                <select id="selChartDensity" class="ratings-select" title="长跨度日期轴可只看概览点或全部原始点">
+                  <option value="auto" ${chartSampling === 'auto' ? 'selected' : ''}>自动</option>
+                  <option value="all" ${chartSampling === 'all' ? 'selected' : ''}>全部</option>
+                </select>
+              </label>
+              <div class="ratings-style-checks">
+                <label class="ratings-checkbox-label chart-only-ctrl">
+                  <input type="checkbox" id="chkChartPoints" ${chartShowPoints ? 'checked' : ''}> 数据点
+                </label>
+                <label class="ratings-checkbox-label chart-only-ctrl">
+                  <input type="checkbox" id="chkChartSmooth" ${chartSmooth ? 'checked' : ''}> 平滑曲线
+                </label>
+                <label class="ratings-checkbox-label chart-only-ctrl">
+                  <input type="checkbox" id="chkChartGrid" ${chartShowGrid ? 'checked' : ''}> 网格
+                </label>
+                <label class="ratings-checkbox-label chart-only-ctrl">
+                  <input type="checkbox" id="chkChartSparse" ${chartSparseX ? 'checked' : ''}> 精简横轴
+                </label>
+              </div>
+            </div>
+          </details>
           <button class="btn btn-sm chart-only-ctrl" id="btnFullscreenChart" type="button" title="全屏查看大图">${chartIcon('expand')} 全屏</button>
           <button class="btn btn-sm" id="btnCopyChartData" type="button" title="复制表格数据至剪贴板">${chartIcon('copy')} 复制数据</button>
           <button class="btn btn-sm chart-only-ctrl" id="btnExportChartPng" type="button" title="导出 2x 高清 PNG 图片">${chartIcon('download')} 导出 PNG</button>
@@ -844,49 +1016,82 @@ async function renderTrendView(targetPlayer = '') {
     <div class="ratings-table-container" id="trendTableWrap" style="display: ${currentViewType === 'table' ? 'block' : 'none'};"></div>
   `;
 
-  // 渲染活跃标签与热门点选条
+  const searchInput = document.getElementById('txtTrendPlayer');
+  const systemSelect = document.getElementById('selTrendSystem');
+  const presets = document.getElementById('trendPresets');
+  for (const panel of [presets, document.getElementById('ratingsStylePopover')]) {
+    document.addEventListener('pointerdown', event => {
+      if (panel.open && !panel.contains(event.target)) panel.open = false;
+    }, {signal});
+    panel.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !panel.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      panel.open = false;
+      panel.querySelector('summary').focus();
+    });
+  }
+
+  const refreshPlayers = () => {
+    renderActivePlayerChips();
+    renderCandidateChips();
+    syncWorkspaceUrlState();
+    runPlayerTrend();
+  };
+  const addPlayers = (pickedName) => {
+    const names = splitTrendPlayerNames(searchInput.value);
+    if (pickedName) names[names.length ? names.length - 1 : 0] = pickedName;
+    if (!names.length) return;
+    currentTrendPlayers = [...new Set([...currentTrendPlayers, ...names])];
+    searchInput.value = '';
+    suggestions.hide();
+    refreshPlayers();
+    searchInput.focus();
+  };
+  const suggestions = bindPlayerSuggestions(
+    searchInput, document.getElementById('trendPlayerOptions'),
+    () => searchInput.value.split(/[,，]/).at(-1).trim(),
+    async query => {
+      if (systemSelect.value !== 'goratings') return searchPlayerDirectory(query);
+      const result = await apiGet(`/api/ratings/goratings/players?q=${encodeURIComponent(query)}&limit=12`);
+      return (result.players || []).map(player => ({
+        value: player.name_zh || player.name_en,
+        label: player.name_zh || player.name_en,
+        detail: [player.name_zh ? player.name_en : '', player.country].filter(Boolean).join(' · ')
+      }));
+    },
+    item => addPlayers(item.value), signal
+  );
+  document.getElementById('trendPlayerForm').onsubmit = event => {
+    event.preventDefault();
+    addPlayers();
+  };
+  document.getElementById('btnClearTrendPlayers').onclick = () => {
+    currentTrendPlayers = [];
+    searchInput.value = '';
+    suggestions.hide();
+    refreshPlayers();
+    searchInput.focus();
+  };
+  systemSelect.onchange = () => {
+    currentSystem = systemSelect.value;
+    suggestions.hide();
+    refreshPlayers();
+  };
+
+  bindTrendPresets(presets, systems, (players, system, mode) => {
+    if (system) systemSelect.value = system;
+    currentSystem = systemSelect.value;
+    currentTrendPlayers = players;
+    currentChartMode = mode;
+    searchInput.value = '';
+    suggestions.hide();
+    presets.open = false;
+    presets.querySelector('summary').focus();
+    refreshPlayers();
+  });
   renderActivePlayerChips();
   renderCandidateChips();
-
-  // 绑定经典预设
-  document.querySelectorAll('.btn-preset-pill').forEach(btn => {
-    btn.onclick = () => {
-      if (btn.dataset.sys) {
-        currentSystem = btn.dataset.sys;
-        const sysSel = document.getElementById('selTrendSystem');
-        if (sysSel) sysSel.value = currentSystem;
-      }
-      currentTrendPlayers = splitTrendPlayerNames(btn.dataset.players);
-      if (btn.dataset.mode) currentChartMode = btn.dataset.mode;
-      const input = document.getElementById('txtTrendPlayer');
-      if (input) input.value = currentTrendPlayers.join(', ');
-      renderActivePlayerChips();
-      renderCandidateChips();
-      runPlayerTrend();
-    };
-  });
-
-  // GoRatings 棋手搜索补全（支持简/繁/英输入）
-  let goratingsSuggestTimer = null;
-  const refreshGoRatingsSuggest = (queryText) => {
-    if (currentSystem !== 'goratings') return;
-    const rawQ = String(queryText || '').split(/[,，]/).pop().trim();
-    if (!rawQ) return;
-    clearTimeout(goratingsSuggestTimer);
-    goratingsSuggestTimer = setTimeout(async () => {
-      try {
-        const res = await apiGet(`/api/ratings/goratings/players?q=${encodeURIComponent(rawQ)}&limit=15`);
-        const dl = document.getElementById('trendPlayerList');
-        if (!dl || !Array.isArray(res.players) || res.players.length === 0) return;
-        dl.innerHTML = res.players.map(p => {
-          const label = [p.name_en, p.country, p.latest_rating ? Math.round(p.latest_rating) + '分' : ''].filter(Boolean).join(' · ');
-          return `<option value="${esc(p.name_zh || p.name_en)}" label="${esc(label)}">`;
-        }).join('');
-      } catch (_) {}
-    }, 220);
-  };
-  document.getElementById('txtTrendPlayer')?.addEventListener('input', e => refreshGoRatingsSuggest(e.target.value));
-  document.getElementById('txtAddTrendPlayer')?.addEventListener('input', e => refreshGoRatingsSuggest(e.target.value));
 
   // GoRatings 双人分差采样模式切换（自然周默认 vs LOCF 并集）
   document.querySelectorAll('.btn-align-pill').forEach(btn => {
@@ -902,34 +1107,6 @@ async function renderTrendView(targetPlayer = '') {
     };
   });
 
-  // 绑定添加棋手
-  const addInput = document.getElementById('txtAddTrendPlayer');
-  const btnAdd = document.getElementById('btnAddTrendPlayer');
-  const doAdd = () => {
-    const val = addInput?.value.trim();
-    if (val && !currentTrendPlayers.includes(val)) {
-      currentTrendPlayers.push(val);
-      addInput.value = '';
-      const input = document.getElementById('txtTrendPlayer');
-      if (input) input.value = currentTrendPlayers.join(', ');
-      renderActivePlayerChips();
-      renderCandidateChips();
-      runPlayerTrend();
-    }
-  };
-  if (btnAdd) btnAdd.onclick = doAdd;
-  if (addInput) addInput.onkeydown = (e) => { if (e.key === 'Enter') doAdd(); };
-
-  // 清空棋手
-  document.getElementById('btnClearTrendPlayers').onclick = () => {
-    currentTrendPlayers = [];
-    const input = document.getElementById('txtTrendPlayer');
-    if (input) input.value = '';
-    renderActivePlayerChips();
-    renderCandidateChips();
-    runPlayerTrend();
-  };
-
   // 时间跨度预设点击
   document.querySelectorAll('.btn-time-pill[data-range]').forEach(btn => {
     btn.onclick = () => {
@@ -937,41 +1114,9 @@ async function renderTrendView(targetPlayer = '') {
     };
   });
 
-  document.getElementById('selTrendSystem').onchange = (e) => {
-    currentSystem = e.target.value;
-    runPlayerTrend();
-  };
-
-  document.getElementById('btnSearchTrend').onclick = (e) => {
-    e.preventDefault();
-    const inputVal = document.getElementById('txtTrendPlayer')?.value.trim() || '';
-    currentTrendPlayers = splitTrendPlayerNames(inputVal);
-    renderActivePlayerChips();
-    renderCandidateChips();
-    runPlayerTrend();
-  };
-
-  document.getElementById('txtTrendPlayer').onkeydown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const inputVal = document.getElementById('txtTrendPlayer')?.value.trim() || '';
-      currentTrendPlayers = splitTrendPlayerNames(inputVal);
-      renderActivePlayerChips();
-      renderCandidateChips();
-      runPlayerTrend();
-    }
-  };
-
-  document.getElementById('txtTrendPlayer').onsearch = () => {
-    const inputVal = document.getElementById('txtTrendPlayer')?.value.trim() || '';
-    currentTrendPlayers = splitTrendPlayerNames(inputVal);
-    renderActivePlayerChips();
-    renderCandidateChips();
-    if (currentTrendPlayers.length > 0) runPlayerTrend();
-  };
-
   const syncControlVisibility = () => {
     const isChart = currentViewType === 'chart';
+    if (!isChart) document.getElementById('ratingsStylePopover').open = false;
     document.querySelectorAll('.chart-only-ctrl').forEach(el => {
       el.style.display = isChart ? '' : 'none';
     });
@@ -1010,6 +1155,7 @@ async function renderTrendView(targetPlayer = '') {
   document.getElementById('selChartMode').onchange = (e) => {
     currentChartMode = e.target.value;
     syncGoRatingsAlignVisibility();
+    renderActivePlayerChips();
     renderChartPlot();
     renderTrendTable(document.getElementById('trendTableWrap'), currentChartData);
     syncWorkspaceUrlState();
@@ -1097,43 +1243,205 @@ async function renderTrendView(targetPlayer = '') {
   await runPlayerTrend();
 }
 
-// 辅助：渲染活跃对比棋手标签条
+async function searchPlayerDirectory(query) {
+  const result = await window.GoStatsDataClient.searchPlayers(query, 12);
+  return (result.items || []).map(player => ({
+    value: player.name_zh || player.name_native || player.romanized,
+    label: player.name_zh || player.name_native || player.romanized,
+    id: player.id,
+    detail: [
+      player.romanized || player.name_native,
+      player.nationality && (window.GoViewerFlags?.info(player.nationality)?.name || player.nationality),
+      player.default_rank,
+      player.birth_date
+    ].filter(Boolean).join(' · ')
+  }));
+}
+
+function bindPlayerSuggestions(input, list, query, search, pick, signal) {
+  let items = [];
+  let index = -1;
+  let generation = 0;
+  let timer;
+  const hide = () => {
+    clearTimeout(timer);
+    generation++;
+    items = [];
+    index = -1;
+    list.hidden = true;
+    list.replaceChildren();
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  };
+  const focusItem = (next) => {
+    index = next;
+    const option = list.children[index];
+    input.setAttribute('aria-activedescendant', option.id);
+    for (const item of list.children) item.setAttribute('aria-selected', String(item === option));
+    option.scrollIntoView({block: 'nearest'});
+  };
+  input.addEventListener('input', () => {
+    hide();
+    const term = query();
+    if (!term) return;
+    const request = generation;
+    timer = setTimeout(async () => {
+      try {
+        const found = await search(term);
+        if (request !== generation || signal.aborted || term !== query() || document.activeElement !== input) return;
+        items = found.filter(item => item.value);
+        if (!items.length) return;
+        list.innerHTML = items.map((item, i) => `
+          <div id="${list.id}-${i}" role="option" aria-selected="false" data-index="${i}">
+            <span>${esc(item.label)}</span>
+            ${item.detail ? `<small>${esc(item.detail)}</small>` : ''}
+          </div>
+        `).join('');
+        list.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+      } catch (_) {}
+    }, 180);
+  }, {signal});
+  input.addEventListener('blur', hide, {signal});
+  input.addEventListener('keydown', event => {
+    if (event.isComposing || list.hidden) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const next = event.key === 'ArrowDown' ? (index + 1) % items.length
+        : (index <= 0 ? items.length - 1 : index - 1);
+      focusItem(next);
+    } else if (event.key === 'Enter' && index >= 0) {
+      event.preventDefault();
+      pick(items[index]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      hide();
+    }
+  }, {signal});
+  list.addEventListener('mousedown', event => event.preventDefault(), {signal});
+  list.addEventListener('click', event => {
+    const option = event.target.closest('[data-index]');
+    if (option) pick(items[Number(option.dataset.index)]);
+  }, {signal});
+  signal.addEventListener('abort', hide, {once: true});
+  return {hide};
+}
+
+function bindTrendPresets(presets, systems, apply) {
+  const storageKey = 'go_viewer_rating_custom_presets_v1';
+  const wrap = document.getElementById('trendCustomPresets');
+  const modes = window.GoViewerRatingsChart.MODES;
+  const knownSystems = new Set(systems.map(system => system.id));
+  const read = () => {
+    try {
+      const list = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      return Array.isArray(list) ? list.filter(item =>
+        typeof item?.label === 'string' && typeof item.players === 'string' &&
+        splitTrendPlayerNames(item.players).length && knownSystems.has(item.sys) &&
+        Object.hasOwn(modes, item.mode)
+      ) : [];
+    } catch (_) {
+      return [];
+    }
+  };
+  const write = (list) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(list));
+      render();
+      return true;
+    } catch (_) {
+      setRatingsStatus('无法保存本地预设。', true);
+      return false;
+    }
+  };
+  const render = () => {
+    wrap.innerHTML = read().map((item, index) => `
+      <span class="custom-preset-item">
+        <button type="button" class="btn btn-sm btn-preset-pill" data-sys="${esc(item.sys)}" data-players="${esc(item.players)}" data-mode="${esc(item.mode)}" title="${esc(getSystemDisplayName(item.sys))} · ${esc(modes[item.mode])}">${esc(item.label)}</button>
+        <button type="button" class="custom-preset-del" data-index="${index}" aria-label="删除预设 ${esc(item.label)}">×</button>
+      </span>
+    `).join('');
+  };
+  presets.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.matches('.btn-preset-pill')) {
+      apply(splitTrendPlayerNames(button.dataset.players), button.dataset.sys, button.dataset.mode);
+    } else if (button.matches('.custom-preset-del')) {
+      if (write(read().filter((_, index) => index !== Number(button.dataset.index)))) {
+        document.getElementById('btnSaveCustomPreset').focus();
+      }
+    }
+  });
+  document.getElementById('btnSaveCustomPreset').onclick = () => {
+    if (!currentTrendPlayers.length || !currentChartData) return;
+    const list = read();
+    const players = currentTrendPlayers.join(', ');
+    if (list.some(item => item.players === players && item.sys === currentSystem && item.mode === currentChartMode)) {
+      setRatingsStatus('当前组合与图表模式已保存。');
+      return;
+    }
+    if (list.length >= 12) {
+      setRatingsStatus('已保存 12 个预设，请先删除一个。', true);
+      return;
+    }
+    const names = currentTrendPlayers.slice(0, 3).join('·');
+    const label = currentTrendPlayers.length > 3 ? `${names}等${currentTrendPlayers.length}人` : names;
+    if (write([...list, {label, sys: currentSystem, players, mode: currentChartMode}])) {
+      setRatingsStatus(`已保存预设「${label}」。`);
+    }
+  };
+  render();
+}
+
 function renderActivePlayerChips() {
   const listWrap = document.getElementById('trendActiveChipsList');
   if (!listWrap) return;
-  const palette = window.GoViewerRatingsChart?.PALETTE || ['#e11d48', '#2563eb', '#059669', '#d97706'];
-  const profileIds = new Map();
-  for (const player of (currentChartData?.players || [])) {
-    if (!player.player_id) continue;
-    if (player.player_clean) profileIds.set(player.player_clean, player.player_id);
-    if (player.searched_name) profileIds.set(player.searched_name, player.player_id);
-  }
+  const players = currentChartData?.players || [];
+  const hasIndividualLines = currentChartMode === 'multi-rating' || currentChartMode === 'multi-rank';
+  const chart = window.GoViewerRatingsChart;
+  const colors = hasIndividualLines ? chart.getPlayerColors(players) : new Map();
+  const findPlayer = name => players.find(player => player.searched_name === name || player.player_clean === name);
+  const canColor = player => Boolean(player && colors.get(player));
 
-  if (currentTrendPlayers.length === 0) {
-    listWrap.innerHTML = '<span class="ratings-muted-hint">（未选择棋手，可在右侧添加或点选下方热门棋手）</span>';
-    return;
-  }
-
-  listWrap.innerHTML = currentTrendPlayers.map((name, idx) => {
-    const color = palette[idx % palette.length];
+  listWrap.innerHTML = currentTrendPlayers.map(name => {
+    const player = findPlayer(name);
+    const color = colors.get(player);
     return `
-      <span class="trend-active-chip" style="--chip-color: ${color};">
-        <span class="chip-color-dot"></span>
+      <span class="trend-active-chip"${color ? ` style="--chip-color: ${color};"` : ''} data-player="${esc(name)}">
+        ${canColor(player) ? `<button type="button" class="chip-color-dot" aria-label="切换 ${esc(name)} 曲线颜色" title="切换曲线颜色"></button>` : ''}
         <span class="chip-name">${esc(name)}</span>
-        ${playerProfileLinkHtml(profileIds.get(name), name)}
-        <button type="button" class="chip-remove-btn" data-player="${esc(name)}" title="移出对比">✕</button>
+        ${playerProfileLinkHtml(player?.player_id, name)}
+        <button type="button" class="chip-remove-btn" aria-label="移除 ${esc(name)}" title="移出对比">✕</button>
       </span>
     `;
   }).join('');
 
-  listWrap.querySelectorAll('.chip-remove-btn').forEach(btn => {
-    btn.onclick = () => {
-      const rm = btn.dataset.player;
-      currentTrendPlayers = currentTrendPlayers.filter(x => x !== rm);
-      const input = document.getElementById('txtTrendPlayer');
-      if (input) input.value = currentTrendPlayers.join(', ');
+  listWrap.querySelectorAll('.trend-active-chip').forEach(chip => {
+    const name = chip.dataset.player;
+    const player = findPlayer(name);
+    const dot = chip.querySelector('.chip-color-dot');
+    if (dot) {
+      const updateFocus = () => currentChartRenderer?.focusPlayer(chip.matches(':hover, :focus-within') ? player : null);
+      for (const event of ['pointerenter', 'pointerleave', 'focusin', 'focusout']) {
+        chip.addEventListener(event, () => queueMicrotask(updateFocus));
+      }
+      dot.onclick = () => {
+        if (!chart.cyclePlayerColor(player, players)) {
+          setRatingsStatus('同图配色已用完。');
+          return;
+        }
+        renderActivePlayerChips();
+        renderChartPlot();
+        [...listWrap.children].find(item => item.dataset.player === name)?.querySelector('.chip-color-dot')?.focus();
+      };
+    }
+    chip.querySelector('.chip-remove-btn').onclick = () => {
+      currentTrendPlayers = currentTrendPlayers.filter(item => item !== name);
       renderActivePlayerChips();
       renderCandidateChips();
+      document.getElementById('txtTrendPlayer').focus();
       runPlayerTrend();
     };
   });
@@ -1148,7 +1456,7 @@ function renderCandidateChips() {
   listWrap.innerHTML = popular.map(name => {
     const isAct = currentTrendPlayers.includes(name);
     return `
-      <button type="button" class="btn btn-sm btn-quick-player ${isAct ? 'active' : ''}" data-player="${esc(name)}">
+      <button type="button" class="btn btn-sm btn-quick-player ${isAct ? 'active' : ''}" data-player="${esc(name)}" aria-pressed="${isAct}">
         ${isAct ? '✓ ' : '+ '}${esc(name)}
       </button>
     `;
@@ -1158,14 +1466,10 @@ function renderCandidateChips() {
     btn.onclick = () => {
       const name = btn.dataset.player;
       if (currentTrendPlayers.includes(name)) {
-        if (currentTrendPlayers.length > 1) {
-          currentTrendPlayers = currentTrendPlayers.filter(x => x !== name);
-        }
+        currentTrendPlayers = currentTrendPlayers.filter(x => x !== name);
       } else {
         currentTrendPlayers.push(name);
       }
-      const input = document.getElementById('txtTrendPlayer');
-      if (input) input.value = currentTrendPlayers.join(', ');
       renderActivePlayerChips();
       renderCandidateChips();
       runPlayerTrend();
@@ -1182,29 +1486,40 @@ function applyTimePreset(range) {
   const endSel = document.getElementById('selChartEndMonth');
   if (!startSel || !endSel || !currentChartData || !currentChartData.months) return;
 
-  const ms = currentChartData.months;
-  if (ms.length === 0) return;
-
-  const endVal = ms[ms.length - 1].month_key;
-  endSel.value = endVal;
-
-  const yearsMap = { '1y': 1, '2y': 2, '3y': 3, '5y': 5 };
-  let startVal = ms[0].month_key;
-  if (yearsMap[range]) {
-    const yearsBack = yearsMap[range];
-    if (currentChartData.time_scale === 'date' || currentSystem === 'goratings') {
-      const endKey = Number(endVal);
-      const targetCutoff = endKey - yearsBack * 10000;
-      const found = ms.find(m => Number(m.month_key) >= targetCutoff);
-      startVal = found ? found.month_key : ms[0].month_key;
-    } else {
-      startVal = ms[Math.max(0, ms.length - yearsBack * 12)].month_key;
-    }
-  }
-
-  startSel.value = startVal;
+  const months = trendTimeOptions(currentChartData);
+  if (!months.length) return;
+  [startSel.value, endSel.value] = timePresetBounds(range, months);
   renderChartPlot();
   renderTrendTable(document.getElementById('trendTableWrap'), currentChartData);
+}
+
+function dateTimeline(rows) {
+  const keys = new Map();
+  for (const row of rows) {
+    const date = row.date || row.month_str;
+    const key = window.GoViewerRatingsChart.plotTimeKey(row, true);
+    if (key >= 1000000) keys.set(key, {month_key: key, date, month_str: date});
+  }
+  return [...keys.values()].sort((a, b) => a.month_key - b.month_key);
+}
+
+function trendTimeOptions(data) {
+  if (data.time_scale !== 'date') return data.months || [];
+  return dateTimeline([
+    ...data.months,
+    ...data.players.flatMap(player => player.annual_snapshots || []),
+    ...(data.diff_series || [])
+  ]);
+}
+
+function timePresetBounds(range, months) {
+  const end = months.at(-1).month_key;
+  const years = {'1y': 1, '2y': 2, '3y': 3, '5y': 5}[range];
+  if (!years) return [months[0].month_key, end];
+  const start = String(end).length === 8
+    ? months.find(month => month.month_key >= end - years * 10000)
+    : months[Math.max(0, months.length - years * 12)];
+  return [start.month_key, end];
 }
 
 function updateTimePillActive() {
@@ -1231,42 +1546,53 @@ async function runPlayerTrend() {
   const chartWrap = document.getElementById('trendChartWrap');
   const noticeWrap = document.getElementById('trendNotice');
   const pillsWrap = document.getElementById('trendSystemPills');
-  const btnSearch = document.getElementById('btnSearchTrend');
   const sysSelect = document.getElementById('selTrendSystem');
+  const savePreset = document.getElementById('btnSaveCustomPreset');
+  const status = document.getElementById('trendStatus');
+  if (!chartWrap) return;
 
-  if (sysSelect) currentSystem = sysSelect.value;
-  const playerInput = document.getElementById('txtTrendPlayer');
-  const rawInput = playerInput?.value.trim() || '';
-
-  if (!rawInput) {
-    if (noticeWrap) noticeWrap.innerHTML = '';
-    if (cardsWrap) cardsWrap.innerHTML = '';
-    if (pillsWrap) pillsWrap.innerHTML = '';
-    if (chartWrap) chartWrap.innerHTML = '<div class="ratings-chart-empty">请输入要查询的棋手姓名。</div>';
-    if (tableWrap) tableWrap.innerHTML = '<div class="ratings-error">请输入要查询的棋手姓名。</div>';
+  const request = ++trendRequest;
+  const version = viewVersion;
+  const isCurrent = () => version === viewVersion && request === trendRequest;
+  const setBusy = busy => {
+    for (const panel of [chartWrap, tableWrap]) {
+      panel.classList.toggle('is-loading', busy);
+      panel.setAttribute('aria-busy', String(busy));
+      panel.inert = busy;
+    }
+    savePreset.disabled = busy || !currentChartData || currentChartData.system_id !== currentSystem;
+  };
+  currentSystem = sysSelect.value;
+  const playerList = [...currentTrendPlayers];
+  syncWorkspaceUrlState();
+  if (!playerList.length) {
+    currentChartRenderer?.destroy();
+    currentChartRenderer = null;
+    currentChartData = null;
+    noticeWrap.replaceChildren();
+    cardsWrap.replaceChildren();
+    pillsWrap.replaceChildren();
+    chartWrap.innerHTML = '<div class="ratings-chart-empty">添加棋手以查看走势。</div>';
+    tableWrap.replaceChildren();
+    updateChartControls(null);
+    syncGoRatingsAlignVisibility();
+    setPanelStatus(status);
+    setBusy(false);
     return;
   }
 
-  // 按钮交互即时反馈
-  if (btnSearch) {
-    btnSearch.disabled = true;
-    btnSearch.innerHTML = '<span class="trend-btn-loading">查询中…</span>';
-  }
-
-  const playerList = splitTrendPlayerNames(rawInput);
-
+  setPanelStatus(status, '正在加载走势…');
+  setBusy(true);
+  let loaded = false;
   try {
     let chartData = null;
     if (playerList.length > 1) {
       // 多人查询模式
       const alignParam = currentSystem === 'goratings' ? `&align=${encodeURIComponent(goratingsDiffAlign)}` : '';
       const data = await apiGet(`/api/ratings/multi-history?system=${encodeURIComponent(currentSystem)}&players=${encodeURIComponent(playerList.join(','))}${alignParam}`);
+      if (!isCurrent()) return;
       chartData = data;
-      if (playerList.length === 2 && currentChartMode !== 'multi-rating' && currentChartMode !== 'multi-rank') {
-        currentChartMode = 'two-diff';
-      } else if (playerList.length > 2) {
-        currentChartMode = 'multi-rating';
-      }
+      pillsWrap.replaceChildren();
       if (noticeWrap) {
         if (currentSystem === 'goratings' || chartData.time_scale === 'date') {
           noticeWrap.innerHTML = `
@@ -1281,7 +1607,8 @@ async function runPlayerTrend() {
       }
     } else {
       // 单人查询模式
-      const data = await apiGet(`/api/ratings/history?system=${encodeURIComponent(currentSystem)}&player=${encodeURIComponent(playerList[0] || rawInput)}`);
+      const data = await apiGet(`/api/ratings/history?system=${encodeURIComponent(currentSystem)}&player=${encodeURIComponent(playerList[0])}`);
+      if (!isCurrent()) return;
       if (data.auto_switched && data.system_id && data.system_id !== currentSystem) {
         currentSystem = data.system_id;
         if (sysSelect) sysSelect.value = data.system_id;
@@ -1305,10 +1632,6 @@ async function runPlayerTrend() {
         } else {
           noticeWrap.innerHTML = '';
         }
-      }
-
-      if (playerInput && data.player_clean && data.player_clean !== rawInput) {
-        playerInput.value = data.player_clean;
       }
 
       // 快捷体系药丸
@@ -1337,10 +1660,6 @@ async function runPlayerTrend() {
         pillsWrap.innerHTML = '';
       }
 
-      if (currentChartMode === 'two-diff' || currentChartMode === 'multi-rating' || currentChartMode === 'multi-rank') {
-        currentChartMode = 'single-dual';
-      }
-
       chartData = {
         system_id: data.system_id,
         time_scale: data.time_scale || (data.system_id === 'goratings' ? 'date' : 'month'),
@@ -1365,16 +1684,15 @@ async function runPlayerTrend() {
       };
     }
 
+    const sameSystem = currentChartData?.system_id === chartData.system_id;
+    if (chartData.time_scale === 'date') {
+      chartData.months = dateTimeline(chartData.players.flatMap(player => player.history || []));
+    }
     currentChartData = chartData;
-
-    // 数据到达后刷新活跃棋手标签，为已审核绑定的棋手补上档案链接。
-    renderActivePlayerChips();
-
-    // 渲染统计指标卡片
-    renderTrendStatsCards(cardsWrap, chartData);
-
-    // 更新图表模式与时间范围控件
+    if (!sameSystem) currentTimePreset = 'all';
     updateChartControls(chartData);
+    renderActivePlayerChips();
+    renderTrendStatsCards(cardsWrap, chartData);
     syncGoRatingsAlignVisibility();
 
     // 绘制等级分矢量图表
@@ -1383,14 +1701,14 @@ async function runPlayerTrend() {
     // 渲染数据表格
     renderTrendTable(tableWrap, chartData);
     syncWorkspaceUrlState();
-
+    setPanelStatus(status);
+    loaded = true;
   } catch (err) {
-    if (chartWrap) chartWrap.innerHTML = `<div class="ratings-chart-empty">查询失败：${esc(err.message)}</div>`;
-    if (tableWrap) tableWrap.innerHTML = `<div class="ratings-error">查询失败：${esc(err.message)}</div>`;
+    if (isCurrent()) setPanelStatus(status, `走势加载失败：${err.message}`, true);
   } finally {
-    if (btnSearch) {
-      btnSearch.disabled = false;
-      btnSearch.innerHTML = '<span class="btn-trend-label">查询走势</span>';
+    if (isCurrent()) {
+      setBusy(false);
+      savePreset.disabled = !loaded;
     }
   }
 }
@@ -1401,7 +1719,9 @@ function updateChartControls(chartData) {
   const endSelect = document.getElementById('selChartEndMonth');
   if (!modeSelect || !startSelect || !endSelect) return;
 
-  const pCount = chartData.players.length;
+  const pCount = chartData?.players.length || 0;
+  const previousBounds = [startSelect.value, endSelect.value];
+  modeSelect.disabled = startSelect.disabled = endSelect.disabled = !pCount;
   let modeOptions = [];
   if (pCount === 1) {
     modeOptions = [
@@ -1420,7 +1740,7 @@ function updateChartControls(chartData) {
     if (!['two-diff', 'multi-rating', 'multi-rank'].includes(currentChartMode)) {
       currentChartMode = 'two-diff';
     }
-  } else {
+  } else if (pCount > 2) {
     modeOptions = [
       { id: 'multi-rating', label: '多人-对比等级分' },
       { id: 'multi-rank', label: '多人-对比排名' }
@@ -1435,7 +1755,7 @@ function updateChartControls(chartData) {
   `).join('');
 
   // 填充起止月份下拉
-  const months = chartData.months || [];
+  const months = chartData ? trendTimeOptions(chartData) : [];
   if (months.length > 0) {
     startSelect.innerHTML = months.map((m, idx) => `
       <option value="${m.month_key}" ${idx === 0 ? 'selected' : ''}>${esc(m.month_str)}</option>
@@ -1443,10 +1763,21 @@ function updateChartControls(chartData) {
     endSelect.innerHTML = months.map((m, idx) => `
       <option value="${m.month_key}" ${idx === months.length - 1 ? 'selected' : ''}>${esc(m.month_str)}</option>
     `).join('');
+    if (currentTimePreset === 'custom') {
+      const keys = months.map(month => String(month.month_key));
+      if (keys.includes(previousBounds[0]) && keys.includes(previousBounds[1])) {
+        [startSelect.value, endSelect.value] = previousBounds;
+      } else {
+        currentTimePreset = 'all';
+      }
+    } else {
+      [startSelect.value, endSelect.value] = timePresetBounds(currentTimePreset, months);
+    }
   } else {
     startSelect.innerHTML = '';
     endSelect.innerHTML = '';
   }
+  updateTimePillActive();
 }
 
 function renderChartPlot() {
@@ -1459,12 +1790,11 @@ function renderChartPlot() {
   const smooth = Boolean(document.getElementById('chkChartSmooth')?.checked ?? true);
   const showGrid = Boolean(document.getElementById('chkChartGrid')?.checked ?? true);
 
-  // 重新取数或切换模式时释放上一实例的观察器、事件与全屏资源。
-  if (currentChartRenderer?.destroy) currentChartRenderer.destroy();
-  currentChartRenderer = window.GoViewerRatingsChart?.create(chartWrap, {
+  const options = {
     mode: currentChartMode,
-    timeScale: currentChartData.time_scale || (currentSystem === 'goratings' ? 'date' : 'month'),
-    systemName: getSystemDisplayName(currentSystem),
+    timeScale: currentChartData.time_scale || (currentChartData.system_id === 'goratings' ? 'date' : 'month'),
+    systemName: getSystemDisplayName(currentChartData.system_id),
+    theme: document.body.dataset.theme,
     sparseX: sparseX,
     showLabels: true,
     labelMode: chartLabelMode,
@@ -1475,9 +1805,35 @@ function renderChartPlot() {
     ptSize: chartPtSize,
     startKey: startVal ? parseInt(startVal, 10) : null,
     endKey: endVal ? parseInt(endVal, 10) : null,
-  });
-
-  currentChartRenderer.setData(currentChartData);
+    onBrushRange: ({startKey, endKey}) => {
+      const startSel = document.getElementById('selChartStartMonth');
+      const endSel = document.getElementById('selChartEndMonth');
+      if (!startSel || !endSel) return;
+      const previousBounds = [startSel.value, endSel.value];
+      startSel.value = String(startKey);
+      endSel.value = String(endKey);
+      if (!startSel.value || !endSel.value) {
+        [startSel.value, endSel.value] = previousBounds;
+        return;
+      }
+      currentTimePreset = 'custom';
+      updateTimePillActive();
+      renderChartPlot();
+      renderTrendTable(document.getElementById('trendTableWrap'), currentChartData);
+      setRatingsStatus('已放大所选时间区间（双击画布可恢复全部区间）。', false);
+    },
+    onResetZoom: () => {
+      applyTimePreset('all');
+      setRatingsStatus('已恢复全部时间区间。', false);
+    }
+  };
+  if (currentChartRenderer?.data === currentChartData) {
+    currentChartRenderer.setOptions(options);
+  } else {
+    currentChartRenderer?.destroy();
+    currentChartRenderer = window.GoViewerRatingsChart.create(chartWrap, options);
+    currentChartRenderer.setData(currentChartData);
+  }
 }
 
 function renderTrendStatsCards(cardsWrap, chartData) {
@@ -1537,7 +1893,7 @@ function renderTrendStatsCards(cardsWrap, chartData) {
     }
 
     const sampleTitle = isDate
-      ? `对比采样点数 (${chartData.align_mode === 'union' ? '对局日并集' : '自然周'})`
+      ? `对比采样点数 (${chartData.align === 'union' ? '对局日并集' : '自然周'})`
       : '共同对局月数';
 
     cardsWrap.innerHTML = `
@@ -1554,8 +1910,9 @@ function renderTrendStatsCards(cardsWrap, chartData) {
         <div class="stat-title">${esc(p2.player_clean)} 最新分</div>
       </div>
       <div class="stat-card ${leadCardClass}">
-        <div class="stat-number stat-number--compact">${leadText}</div>
+        <div class="stat-number stat-number--compact">${esc(leadText)}</div>
         <div class="stat-title">最新分差 (${esc(latestDiff?.date || latestDiff?.month_str || '-')})</div>
+        ${(p1.player_id && p2.player_id && p1.player_id !== p2.player_id) ? `<a class="stat-h2h-link" href="head-to-head.html?a=${encodeURIComponent(p1.player_id)}&amp;b=${encodeURIComponent(p2.player_id)}" target="_blank" rel="noopener noreferrer">查看历史交锋 →</a>` : ''}
       </div>
     `;
   } else {
@@ -1705,16 +2062,17 @@ function renderTrendTable(tableWrap, chartData) {
 }
 
 function openPlayerTrend(playerName) {
-  currentTab = 'trend';
-  renderTabs();
-  renderTrendView(playerName);
+  switchTab('trend', playerName);
 }
 
-// 4. 等级分数据导入与月度导出视图（继承自 Go Ranking Tools）
+// 4. 等级分导入
+
 async function renderImportView() {
   const content = document.getElementById('ratingsContent');
+  const version = viewVersion;
   const systems = await loadSystems();
 
+  if (version !== viewVersion) return;
   content.innerHTML = `
     <div class="ratings-import-container">
       <div class="ratings-import-header">
@@ -1738,19 +2096,22 @@ async function renderImportView() {
             </div>
 
             <div class="ratings-form-row">
-              <label>选择待导入文件 (.xlsx, .xls, .csv)</label>
+              <label for="fileRatingImport">导入文件</label>
               <div class="ratings-file-dropzone" id="importDropzone">
                 <input type="file" id="fileRatingImport" class="ratings-file-input" accept=".xlsx,.xls,.csv">
                 <button type="button" class="btn" id="btnChooseImportFile">${chartIcon('folder')} 选择本地文件</button>
-                <span id="txtChosenFileName" class="chosen-filename">未选择文件</span>
+                <span id="txtChosenFileName" class="chosen-filename">可拖入 Excel 或 CSV</span>
               </div>
             </div>
 
-            <div class="ratings-form-row">
-              <label>或指定服务器端文件路径
-                <input type="text" id="txtServerImportPath" class="ratings-input" placeholder="例如：D:\\Development\\Go-Ranking-Tool\\...\\ratings.xlsx">
-              </label>
-            </div>
+            <details class="ratings-advanced-path">
+              <summary>服务器文件路径</summary>
+              <div class="ratings-form-row">
+                <label>文件路径
+                  <input type="text" id="txtServerImportPath" class="ratings-input">
+                </label>
+              </div>
+            </details>
 
             <div class="ratings-import-actions">
               <button type="button" class="btn btn-gold" id="btnPreviewImport">${chartIcon('search')} 预检解析文件</button>
@@ -1805,7 +2166,9 @@ async function renderImportView() {
   `;
 
   let chosenFile = null;
-  let parsedPreviewData = null;
+  let preview = null;
+  let sourceVersion = 0;
+  let importing = false;
 
   const fileInput = document.getElementById('fileRatingImport');
   const txtFileName = document.getElementById('txtChosenFileName');
@@ -1818,31 +2181,63 @@ async function renderImportView() {
   const resultSection = document.getElementById('importResultSection');
   const btnPreview = document.getElementById('btnPreviewImport');
   const btnCommit = document.getElementById('btnCommitImport');
-
-  // 文件选取绑定
-  document.getElementById('btnChooseImportFile').onclick = () => fileInput.click();
-  fileInput.onchange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      chosenFile = e.target.files[0];
-      txtFileName.textContent = `${chosenFile.name} (${(chosenFile.size / 1024).toFixed(1)} KB)`;
-      txtServerPath.value = '';
-      btnCommit.disabled = true;
-      previewSection.style.display = 'none';
-      resultSection.style.display = 'none';
-      noticeWrap.innerHTML = '';
-    }
+  const systemSelect = document.getElementById('selImportSystem');
+  const isActive = () => version === viewVersion;
+  const invalidatePreview = () => {
+    sourceVersion++;
+    preview = null;
+    btnCommit.disabled = true;
+    btnPreview.disabled = false;
+    btnPreview.innerHTML = `${chartIcon('search')} 预检解析文件`;
+    previewSection.style.display = 'none';
+    resultSection.style.display = 'none';
+    noticeWrap.replaceChildren();
   };
 
+  const acceptFiles = files => {
+    if (!files.length || importing) return;
+    invalidatePreview();
+    chosenFile = null;
+    txtServerPath.value = '';
+    const file = files[0];
+    if (files.length !== 1 || !/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      fileInput.value = '';
+      txtFileName.textContent = '未选择文件';
+      noticeWrap.innerHTML = '<div class="ratings-error">请选择一个 .xlsx、.xls 或 .csv 文件。</div>';
+      return;
+    }
+    chosenFile = file;
+    txtFileName.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+  };
+  document.getElementById('btnChooseImportFile').onclick = () => fileInput.click();
+  fileInput.onchange = () => acceptFiles(fileInput.files);
+  const dropzone = document.getElementById('importDropzone');
+  const enableDrop = event => {
+    if (importing || !event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    dropzone.classList.add('is-dragover');
+  };
+  dropzone.addEventListener('dragenter', enableDrop);
+  dropzone.addEventListener('dragover', enableDrop);
+  dropzone.addEventListener('dragleave', event => {
+    if (!dropzone.contains(event.relatedTarget)) dropzone.classList.remove('is-dragover');
+  });
+  dropzone.addEventListener('drop', event => {
+    event.preventDefault();
+    dropzone.classList.remove('is-dragover');
+    fileInput.value = '';
+    acceptFiles(event.dataTransfer?.files || []);
+  });
+
+  systemSelect.onchange = invalidatePreview;
   txtServerPath.oninput = () => {
+    invalidatePreview();
     if (txtServerPath.value.trim()) {
       chosenFile = null;
-      txtFileName.textContent = '使用服务器端路径';
       fileInput.value = '';
-      btnCommit.disabled = true;
-      previewSection.style.display = 'none';
-      resultSection.style.display = 'none';
-      noticeWrap.innerHTML = '';
     }
+    if (!chosenFile) txtFileName.textContent = txtServerPath.value.trim() ? '使用服务器端路径' : '未选择文件';
   };
 
   // 读取文件内容为 Base64
@@ -1859,39 +2254,37 @@ async function renderImportView() {
     });
   }
 
+  const importSource = async (file, serverPath) => file
+    ? {file_base64: await readFileBase64(file), file_name: file.name}
+    : {source_path: serverPath};
+
   // 1. 预检解析
   btnPreview.onclick = async () => {
-    noticeWrap.innerHTML = '';
-    resultSection.style.display = 'none';
-
-    const system = document.getElementById('selImportSystem').value;
+    invalidatePreview();
+    const request = sourceVersion;
+    const isCurrent = () => isActive() && request === sourceVersion;
+    const system = systemSelect.value;
+    const file = chosenFile;
     const serverPath = txtServerPath.value.trim();
 
-    if (!chosenFile && !serverPath) {
-      noticeWrap.innerHTML = '<div class="ratings-error">请先选择要导入的 Excel / CSV 本地文件，或输入服务器路径。</div>';
+    if (!file && !serverPath) {
+      noticeWrap.innerHTML = '<div class="ratings-error">请选择文件或输入服务器路径。</div>';
       return;
     }
-
     btnPreview.disabled = true;
     btnPreview.textContent = '解析中…';
 
     try {
-      let payload = { system };
-      if (chosenFile) {
-        const b64 = await readFileBase64(chosenFile);
-        payload.file_base64 = b64;
-        payload.file_name = chosenFile.name;
-      } else {
-        payload.source_path = serverPath;
-      }
-
-      const res = await apiPost('/api/ratings/import/preview', payload);
+      const source = await importSource(file, serverPath);
+      if (!isCurrent()) return;
+      const res = await apiPost('/api/ratings/import/preview', {system, ...source});
+      if (!isCurrent()) return;
       if (!res.ok) {
         noticeWrap.innerHTML = `<div class="ratings-error">预检解析失败：${esc((res.errors || []).join('; ') || '未能识别等级分内容')}</div>`;
         return;
       }
 
-      parsedPreviewData = res;
+      preview = {system, file, serverPath, total: res.total_records};
       previewSection.style.display = 'block';
       previewMeta.textContent = `共识别 ${(res.months || []).length} 个月份，${res.total_records} 条记录`;
 
@@ -1945,19 +2338,21 @@ async function renderImportView() {
       noticeWrap.innerHTML = `<div class="ratings-info-banner"><span class="info-icon">${chartIcon('check')}</span><span>文件预检解析完成，请核对上方月份与样本无误后，点击“确认并导入入库”。</span></div>`;
 
     } catch (err) {
-      noticeWrap.innerHTML = `<div class="ratings-error">解析失败：${esc(err.message)}</div>`;
+      if (isCurrent()) noticeWrap.innerHTML = `<div class="ratings-error">解析失败：${esc(err.message)}</div>`;
     } finally {
-      btnPreview.disabled = false;
-      btnPreview.innerHTML = `${chartIcon('search')} 预检解析文件`;
+      if (isCurrent()) {
+        btnPreview.disabled = false;
+        btnPreview.innerHTML = `${chartIcon('search')} 预检解析文件`;
+      }
     }
   };
 
   // 2. 确认提交导入
   btnCommit.onclick = async () => {
-    if (!parsedPreviewData) return;
+    if (!preview || importing) return;
+    const selectedPreview = preview;
 
-    // 收集选中的月份
-    const checkedBoxes = Array.from(document.querySelectorAll('.chk-import-month:checked'));
+    const checkedBoxes = [...previewSection.querySelectorAll('.chk-import-month:checked')];
     if (checkedBoxes.length === 0) {
       const msg = '请至少勾选一个要导入的月份！';
       noticeWrap.innerHTML = `<div class="ratings-error">${msg}</div>`;
@@ -1966,32 +2361,30 @@ async function renderImportView() {
     }
     const selectedMonths = checkedBoxes.map(cb => parseInt(cb.value, 10));
 
-    const system = document.getElementById('selImportSystem').value;
-    const serverPath = txtServerPath.value.trim();
+    const accepted = await confirmRatingsAction(
+      `将所选 ${selectedMonths.length} 期等级分写入数据库？预检共识别 ${selectedPreview.total} 条记录。`,
+      '确认导入'
+    );
+    if (!accepted || !isActive() || preview !== selectedPreview || importing) return;
 
-    if (!confirm(`确认要将选中的 ${selectedMonths.length} 个月份、预计约 ${parsedPreviewData.total_records} 条等级分数据写入数据库吗？系统将自动在写入前创建快照备份。`)) {
-      return;
-    }
-
+    importing = true;
+    const sourceControls = [fileInput, txtServerPath, systemSelect, document.getElementById('btnChooseImportFile'), btnPreview];
+    sourceControls.forEach(control => { control.disabled = true; });
     btnCommit.disabled = true;
-    btnCommit.textContent = '正在导入入库…';
-    noticeWrap.innerHTML = '<div class="ratings-loading">正在备份数据库并写入等级分快照，请稍候…</div>';
+    btnCommit.textContent = '正在导入…';
+    noticeWrap.innerHTML = '<div class="ratings-loading">正在写入等级分快照…</div>';
 
     try {
-      let payload = {
+      const {system, file, serverPath} = selectedPreview;
+      const payload = {
         system,
+        ...await importSource(file, serverPath),
         selected_months: selectedMonths,
         dry_run: false
       };
-      if (chosenFile) {
-        const b64 = await readFileBase64(chosenFile);
-        payload.file_base64 = b64;
-        payload.file_name = chosenFile.name;
-      } else {
-        payload.source_path = serverPath;
-      }
 
       const res = await apiPost('/api/ratings/import/commit', payload);
+      if (!isActive()) return;
 
       resultSection.style.display = 'block';
       resultSection.innerHTML = `
@@ -2020,7 +2413,7 @@ async function renderImportView() {
       document.getElementById('btnGoToCandidatesAfterImport').onclick = () => switchTab('candidates');
       document.getElementById('btnUndoCurrentImportBatch').onclick = async (e) => {
         const bId = e.currentTarget.dataset.batch;
-        if (!confirm(`确认要撤销刚刚导入的批次【${bId}】吗？`)) return;
+        if (!(await confirmRatingsAction(`撤销刚刚导入的批次「${bId}」？`, '撤销批次', true))) return;
         try {
           await apiPost('/api/ratings/undo', { batch_id: bId });
           await renderImportView();
@@ -2034,13 +2427,18 @@ async function renderImportView() {
       noticeWrap.innerHTML = `<div class="ratings-error">导入失败：${esc(err.message)}</div>`;
       btnCommit.disabled = false;
       btnCommit.innerHTML = `${chartIcon('zap')} 确认并导入入库`;
+    } finally {
+      importing = false;
+      sourceControls.forEach(control => { control.disabled = false; });
     }
   };
 
   // 3. 月度 CSV 导出联动
   const refreshExportMonths = async () => {
-    const sys = document.getElementById('selExportSystem').value;
+    const system = document.getElementById('selExportSystem');
+    const sys = system.value;
     const ms = await loadMonths(sys);
+    if (!isActive() || sys !== system.value) return;
     const sel = document.getElementById('selExportMonth');
     if (ms.length > 0) {
       sel.innerHTML = ms.slice().reverse().map(m => `
@@ -2053,6 +2451,7 @@ async function renderImportView() {
 
   document.getElementById('selExportSystem').onchange = refreshExportMonths;
   await refreshExportMonths();
+  if (!isActive()) return;
 
   document.getElementById('btnRunMonthExport').onclick = () => {
     const sys = document.getElementById('selExportSystem').value;
@@ -2066,6 +2465,7 @@ async function renderImportView() {
 
 // 4. 候选治理视图（编辑模式可用）
 async function renderCandidatesView() {
+  const version = viewVersion;
   const content = document.getElementById('ratingsContent');
 
   content.innerHTML = `
@@ -2074,10 +2474,10 @@ async function renderCandidatesView() {
         <label>状态
           <select id="selCandidateStatus">
             <option value="">全部状态</option>
-            <option value="pending" selected>待审核 (Pending)</option>
-            <option value="conflict">多重冲突 (Conflict)</option>
-            <option value="approved">已审核绑定 (Approved)</option>
-            <option value="ignored">已忽略 (Ignored)</option>
+            <option value="pending" selected>待审核</option>
+            <option value="conflict">有冲突</option>
+            <option value="approved">已绑定</option>
+            <option value="ignored">已忽略</option>
           </select>
         </label>
         <label class="ratings-search-label">搜索
@@ -2093,12 +2493,29 @@ async function renderCandidatesView() {
       <div class="ratings-loading">正在读取候选队列…</div>
     </div>
     <div class="ratings-pager" id="candidatesPager"></div>
+    <dialog class="confirm-dialog ratings-candidate-picker" id="ratingsCandidatePicker" aria-labelledby="ratingsCandidateTitle">
+      <form method="dialog">
+        <div class="modal-header"><h3 id="ratingsCandidateTitle"></h3></div>
+        <div class="modal-body">
+          <div class="ratings-player-search">
+            <label for="ratingsCandidateSearch">搜索棋手</label>
+            <input type="search" class="ratings-input" id="ratingsCandidateSearch" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="ratingsCandidateOptions" aria-expanded="false" autofocus>
+            <div id="ratingsCandidateOptions" class="ratings-player-options" role="listbox" aria-label="棋手搜索结果" hidden></div>
+          </div>
+          <p id="ratingsCandidateSelection" role="status"></p>
+        </div>
+        <div class="editor-footer">
+          <button class="btn" value="cancel" type="submit">取消</button>
+          <button class="btn btn-gold" value="confirm" type="submit" disabled>确认绑定</button>
+        </div>
+      </form>
+    </dialog>
   `;
 
   const btnAutoBind = document.getElementById('btnAutoBindCandidates');
   if (btnAutoBind) {
     btnAutoBind.onclick = async () => {
-      if (!confirm('确定要一键绑定全部高可信度的候选棋手吗？\n（将自动绑定唯一确定匹配档案，排除冲突与有歧义异人）')) {
+      if (!(await confirmRatingsAction('确定要一键绑定全部高可信度的候选棋手吗？（将自动绑定唯一确定匹配档案，排除冲突与有歧义异人）'))) {
         return;
       }
       btnAutoBind.disabled = true;
@@ -2125,6 +2542,7 @@ async function renderCandidatesView() {
   document.getElementById('txtCandidateSearch').oninput = () => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
+      if (version !== viewVersion) return;
       candidatePage = 1;
       fetchAndDisplayCandidates();
     }, 300);
@@ -2150,6 +2568,7 @@ async function fetchAndDisplayCandidates() {
     if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
 
     const data = await apiGet(url);
+    if (!tableWrap.isConnected) return;
 
     if (summaryBadge) {
       summaryBadge.innerHTML = `候选总数：<strong>${data.total}</strong> 项`;
@@ -2183,9 +2602,16 @@ async function fetchAndDisplayCandidates() {
           <button class="btn btn-sm btn-reset-candidate" data-name="${esc(c.player_clean)}">解除绑定</button>
         `;
       } else if (c.status === 'conflict') {
+        const ids = c.conflict_ids || [];
         actionHtml = `
-          <span class="badge-conflict" title="${esc(JSON.stringify(c.conflict_ids))}">冲突项 (${(c.conflict_ids || []).length}个)</span>
-          <button class="btn btn-sm btn-specify-candidate" data-name="${esc(c.player_clean)}">手动指定</button>
+          <div class="candidate-conflict-group">
+            ${ids.length ? `<details class="candidate-conflict-details">
+              <summary>查看 ${ids.length} 个冲突档案</summary>
+              ${c.notes ? `<p>${esc(c.notes)}</p>` : ''}
+              <ul>${ids.map(id => `<li data-profile-id="${esc(id)}"><a href="${esc(buildPlayerProfileHref(id))}" target="_blank" rel="noopener">${esc(id)}</a><small></small></li>`).join('')}</ul>
+            </details>` : ''}
+            <button class="btn btn-sm btn-specify-candidate" data-name="${esc(c.player_clean)}">搜索档案</button>
+          </div>
         `;
       } else if (c.status === 'ignored') {
         actionHtml = `
@@ -2194,7 +2620,7 @@ async function fetchAndDisplayCandidates() {
         `;
       } else {
         actionHtml = `
-          <button class="btn btn-sm btn-specify-candidate" data-name="${esc(c.player_clean)}">指定档案ID</button>
+          <button class="btn btn-sm btn-specify-candidate" data-name="${esc(c.player_clean)}">搜索档案</button>
           <button class="btn btn-sm btn-ignore-candidate" data-name="${esc(c.player_clean)}">忽略</button>
         `;
       }
@@ -2207,7 +2633,7 @@ async function fetchAndDisplayCandidates() {
           <td>${esc(systemsStr)}</td>
           <td>${c.record_count} 条</td>
           <td>${c.first_month_key} ~ ${c.last_month_key}</td>
-          <td><span class="badge-status badge-status-${esc(c.status)}">${esc(c.status)}</span></td>
+          <td><span class="badge-status badge-status-${esc(c.status)}">${esc(({pending: '待审核', conflict: '有冲突', approved: '已绑定', ignored: '已忽略'})[c.status] || c.status)}</span></td>
           <td class="cell-candidate-actions">${actionHtml}</td>
         </tr>
       `;
@@ -2228,6 +2654,31 @@ async function fetchAndDisplayCandidates() {
         <tbody>${rowsHtml}</tbody>
       </table>
     `;
+
+    tableWrap.querySelectorAll('.candidate-conflict-details').forEach(details => {
+      details.addEventListener('toggle', async () => {
+        if (!details.open || details.dataset.loaded) return;
+        details.dataset.loaded = 'true';
+        const items = [...details.querySelectorAll('[data-profile-id]')];
+        await Promise.all(items.map(async item => {
+          const id = item.dataset.profileId;
+          const [profile, summary] = await Promise.allSettled([
+            apiGet(`/api/page-data/player-profile?id=${encodeURIComponent(id)}`),
+            window.GoStatsDataClient.playerSummary(id)
+          ]);
+          if (!item.isConnected) return;
+          const player = profile.value?.player;
+          if (player?.name_zh) item.querySelector('a').textContent = player.name_zh;
+          const nationality = player?.nationality;
+          const count = summary.value?.overall?.total;
+          item.querySelector('small').textContent = [
+            nationality && (window.GoViewerFlags.info(nationality).name || nationality),
+            Number.isInteger(count) ? `${count} 局` : '',
+            player?.name_zh ? id : ''
+          ].filter(Boolean).join(' · ');
+        }));
+      });
+    });
 
     // 绑定事件
     tableWrap.querySelectorAll('.btn-approve-candidate').forEach(btn => {
@@ -2275,17 +2726,20 @@ async function fetchAndDisplayCandidates() {
 
     tableWrap.querySelectorAll('.btn-specify-candidate').forEach(btn => {
       btn.onclick = async () => {
-        const targetId = prompt(`为【${btn.dataset.name}】指定棋手档案 ID (如 ke_jie, shin_jinseo):`);
-        if (!targetId || !targetId.trim()) return;
+        const target = await selectCandidatePlayer(btn.dataset.name);
+        if (!target || !tableWrap.isConnected) return;
+        btn.disabled = true;
         try {
           await apiPost('/api/ratings/candidate/review', {
             player_clean: btn.dataset.name,
             action: 'approve',
-            target_player_id: targetId.trim()
+            target_player_id: target.id
           });
           await fetchAndDisplayCandidates();
         } catch (err) {
-          setRatingsStatus('指定失败: ' + err.message, true);
+          setRatingsStatus('绑定失败：' + err.message, true);
+        } finally {
+          btn.disabled = false;
         }
       };
     });
@@ -2309,12 +2763,52 @@ async function fetchAndDisplayCandidates() {
 }
 
 // 5. 批次管理视图（编辑模式可用）
+function selectCandidatePlayer(name) {
+  const dialog = document.getElementById('ratingsCandidatePicker');
+  const input = document.getElementById('ratingsCandidateSearch');
+  const list = document.getElementById('ratingsCandidateOptions');
+  const selection = document.getElementById('ratingsCandidateSelection');
+  const confirmButton = dialog.querySelector('[value="confirm"]');
+  const controller = new AbortController();
+  let selected = null;
+  document.getElementById('ratingsCandidateTitle').textContent = `为「${name}」绑定棋手档案`;
+  input.value = '';
+  selection.textContent = '';
+  confirmButton.disabled = true;
+  dialog.returnValue = '';
+
+  const suggestions = bindPlayerSuggestions(input, list, () => input.value.trim(), searchPlayerDirectory, item => {
+    selected = item;
+    selection.textContent = [item.label, item.detail, item.id].filter(Boolean).join(' · ');
+    confirmButton.disabled = false;
+    suggestions.hide();
+    confirmButton.focus();
+  }, controller.signal);
+  input.addEventListener('input', () => {
+    selected = null;
+    selection.textContent = '';
+    confirmButton.disabled = true;
+  }, {signal: controller.signal});
+  dialog.querySelector('form').addEventListener('submit', event => {
+    if (event.submitter?.value !== 'cancel' && (event.submitter !== confirmButton || !selected)) event.preventDefault();
+  }, {signal: controller.signal});
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      controller.abort();
+      resolve(dialog.returnValue === 'confirm' ? selected : null);
+    }, {once: true});
+    dialog.showModal();
+  });
+}
+
 async function renderBatchesView() {
   const content = document.getElementById('ratingsContent');
+  const version = viewVersion;
   content.innerHTML = '<div class="ratings-loading">正在读取导入批次…</div>';
 
   try {
     const data = await apiGet('/api/ratings/batches');
+    if (version !== viewVersion) return;
     const batches = data.batches || [];
 
     if (batches.length === 0) {
@@ -2359,7 +2853,7 @@ async function renderBatchesView() {
 
     content.querySelectorAll('.btn-undo-batch').forEach(btn => {
       btn.onclick = async () => {
-        if (!confirm(`确认要撤销批次【${btn.dataset.batch}】吗？这将停用该批次导入的月度快照。`)) return;
+        if (!(await confirmRatingsAction(`撤销批次「${btn.dataset.batch}」并停用该批次的等级分快照？`, '撤销批次', true))) return;
         try {
           await apiPost('/api/ratings/undo', { batch_id: btn.dataset.batch });
           await renderBatchesView();
@@ -2389,12 +2883,7 @@ async function open({ view = 'ranking', system = 'china', player = null } = {}) 
     dialog.showModal();
   }
 
-  if (view === 'trend' && player) {
-    await renderTrendView(player);
-  } else {
-    await switchTab(view);
-  }
-  syncWorkspaceUrlState();
+  await switchTab(view, player || '');
 }
 
 function close() {
@@ -2465,6 +2954,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('ratingsClose')?.addEventListener('click', close);
   document.getElementById('ratingsFooterClose')?.addEventListener('click', close);
+  document.getElementById('ratingsDialog')?.addEventListener('close', () => {
+    if (document.getElementById('ratingsDialog').open) return;
+    viewVersion++;
+    trendViewEvents?.abort();
+    currentChartRenderer?.destroy();
+    currentChartRenderer = null;
+    currentChartData = null;
+    currentComparisonRenderer = null;
+  });
 
   const openPageLink = document.getElementById('btnRatingsOpenPage');
   if (openPageLink) {
@@ -2476,6 +2974,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   window.addEventListener('go:theme-changed', () => {
     if (currentTab === 'trend' && currentChartData) {
+      renderActivePlayerChips();
       renderChartPlot();
     } else if (currentTab === 'compare' && currentComparisonRenderer) {
       currentComparisonRenderer.render?.();
