@@ -2,9 +2,12 @@
 (function (root) {
   'use strict';
   const M = typeof module !== 'undefined' && module.exports ? require('./viewer-model.js') : root.GoViewerModel;
-  const TEAM_IDS = new Set(['nongshim', 'jinro', 'sbs_world', 'zhengguanzhuang']);
+  const TEAM_IDS = new Set(['nongshim', 'jinro', 'sbs_world', 'zhengguanzhuang', 'jinlongcheng_team']);
   const COUNTRY_LABELS = {CHN: '中国', KOR: '韩国', JPN: '日本', TWN: '中华台北'};
   const COUNTRY_ORDER = ['CHN', 'KOR', 'JPN', 'TWN'];
+  const CATEGORY_ORDER = {world: 0, women_world: 1, international: 2, domestic: 3};
+  const getWorldTier = (meta, data) => typeof M.worldTier === 'function' ? M.worldTier(meta, data) : 0;
+  const isStrict = (meta, data) => typeof M.isStrictEvent === 'function' ? M.isStrictEvent(meta, data) : true;
   const CHINA_EVENTS = new Set(
     'changqi ahan bosi cctv xiangyu_tv liguang daqishi jincheng nv_guoshou nv_mingren nv_mingshou qisheng tianyuan xinan xinrenwang lanke_cn wangzhongwang cwql cwwl guoshou_cn individual_cn jianqiao longxing_cn mingren_cn qiwang_cn rookie_open_cn zhoulanyu cwbl cwcl cwwbl new_pro_cn cn_duanwei'.split(' ')
   );
@@ -190,7 +193,7 @@
     };
   }
 
-  function build(index, allData, player, {category = 'all', country = null, today = new Date().toISOString().slice(0, 10)} = {}) {
+  function build(index, allData, player, {category = 'all', country = null, strict = false, today = new Date().toISOString().slice(0, 10)} = {}) {
     let eligible;
     let resolvedCountry = null;
     if (category === 'domestic') {
@@ -205,6 +208,9 @@
       eligible = (index || []).filter(e => ['world', 'women_world', 'international'].includes(e.category || 'world') &&
         (category === 'all' || (e.category || 'world') === category));
     }
+    if (strict) {
+      eligible = eligible.filter(e => isStrict(e, allData ? allData[e.id] : null));
+    }
     const results = new Map();
     for (const meta of eligible) {
       const result = editionResult(meta, allData[meta.id], player, today);
@@ -217,11 +223,23 @@
     const tournamentIds = new Set(eligible.filter(e => results.has(e.id)).map(e => e.tournament_id));
     const rows = [...tournamentIds].map(id => {
       const editions = eligible.filter(e => e.tournament_id === id);
+      const cat = editions[0].category || 'world';
+      const tier = cat === 'world' ? Math.max(...editions.map(e => getWorldTier(e, allData ? allData[e.id] : null))) : 0;
+      const minYear = Math.min(...editions.map(e => Number(e.year) || 9999));
+      const name = editions[0].tournament_short || editions[0].tournament_name;
       const cells = years.map(year => ({year, editions: editions.filter(e => Number(e.year) === year).map(e => ({
         meta: e, result: results.get(e.id) || null
       }))}));
-      return {id, name: editions[0].tournament_short || editions[0].tournament_name, category: editions[0].category || 'world', cells};
+      return {id, name, category: cat, worldTier: tier, minYear, cells};
+    }).sort((a, b) => {
+      const ca = CATEGORY_ORDER[a.category] ?? 9;
+      const cb = CATEGORY_ORDER[b.category] ?? 9;
+      if (ca !== cb) return ca - cb;
+      if (a.category === 'world' && a.worldTier !== b.worldTier) return a.worldTier - b.worldTier;
+      if (a.minYear !== b.minYear) return a.minYear - b.minYear;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
     });
+    rows.forEach(r => delete r.minYear);
     return {years, rows, results: [...results.values()], country: resolvedCountry};
   }
 

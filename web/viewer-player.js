@@ -31,6 +31,8 @@
   const GAMES_URL_KEYS = {
     q: 'games_q',
     category: 'games_cat',
+    stage: 'games_stage',
+    strict: 'games_strict',
     color: 'games_color',
     outcome: 'games_outcome',
     sgf_only: 'games_sgf',
@@ -47,9 +49,12 @@
     const rawYear = parseInt(p.get(GAMES_URL_KEYS.year) || '', 10);
     const rawPage = parseInt(p.get(GAMES_URL_KEYS.page) || '1', 10);
     const rawSize = parseInt(p.get(GAMES_URL_KEYS.pageSize) || '50', 10);
+    const rawStage = p.get(GAMES_URL_KEYS.stage) || 'all';
     return {
       q: (p.get(GAMES_URL_KEYS.q) || '').slice(0, 120),
       category: p.get(GAMES_URL_KEYS.category) || 'all',
+      stage: ['all', 'main', 'prelim', 'unclassified'].includes(rawStage) ? rawStage : 'all',
+      strict: ['1', 'true'].includes(String(p.get(GAMES_URL_KEYS.strict) || '').toLowerCase()),
       color: p.get(GAMES_URL_KEYS.color) || 'all',
       outcome: p.get(GAMES_URL_KEYS.outcome) || 'all',
       sgf_only: ['1', 'true'].includes(String(p.get(GAMES_URL_KEYS.sgf_only) || '').toLowerCase()),
@@ -65,6 +70,8 @@
   const gamesFilterState = {
     q: initialGames.q,
     category: initialGames.category,
+    stage: initialGames.stage,
+    strict: initialGames.strict,
     color: initialGames.color,
     outcome: initialGames.outcome,
     sgf_only: initialGames.sgf_only,
@@ -76,6 +83,7 @@
   let gamesPage = initialGames.page;
   let gamesToken = 0;
   let gamesController = null;
+  let careerStrict = false;
 
   function writeGamesUrl(mode) {
     let url;
@@ -86,6 +94,8 @@
     };
     setOrDel(GAMES_URL_KEYS.q, gamesFilterState.q);
     setOrDel(GAMES_URL_KEYS.category, gamesFilterState.category !== 'all' ? gamesFilterState.category : '');
+    setOrDel(GAMES_URL_KEYS.stage, gamesFilterState.stage !== 'all' ? gamesFilterState.stage : '');
+    setOrDel(GAMES_URL_KEYS.strict, gamesFilterState.strict ? '1' : '');
     setOrDel(GAMES_URL_KEYS.color, gamesFilterState.color !== 'all' ? gamesFilterState.color : '');
     setOrDel(GAMES_URL_KEYS.outcome, gamesFilterState.outcome !== 'all' ? gamesFilterState.outcome : '');
     setOrDel(GAMES_URL_KEYS.sgf_only, gamesFilterState.sgf_only ? '1' : '');
@@ -136,6 +146,7 @@
           <div><h2 id="careerTitle">国际战绩</h2></div>
           <div class="player-career-actions">
             <label>赛事范围 <select id="careerCategory"><option value="all">全部国际赛事</option><option value="world">世界大赛</option><option value="women_world">女子世界大赛</option><option value="international">其他国际比赛</option><option value="domestic">国内赛事</option></select></label>
+            <label class="player-strict-toggle" title="仅含公认个人赛（世界大赛不含中环杯、世界最强／最高棋士战及世界团体赛；其他分类不含团体赛）"><input type="checkbox" id="careerStrictToggle"><span>严格口径</span></label>
             <button type="button" class="btn career-export-btn" id="btnExportCareer">导出截图</button>
           </div>
         </div>
@@ -172,8 +183,10 @@
             <summary>更多筛选</summary>
             <div class="player-games-more-body">
               <label><span>类别</span><select id="gamesCategoryFilter"><option value="all">全部类别</option><option value="world">世界大赛</option><option value="women_world">女子世界大赛</option><option value="international">其他国际比赛</option><option value="domestic">国内比赛</option></select></label>
+              <label><span>赛段</span><select id="gamesStageFilter"><option value="all">全部赛段</option><option value="main">本赛</option><option value="prelim">预选</option><option value="unclassified">赛段待核</option></select></label>
               <label><span>执色</span><select id="gamesColorFilter"><option value="all">全部</option><option value="black">执黑</option><option value="white">执白</option><option value="unknown">执色未知</option></select></label>
               <label><span>赛果</span><select id="gamesResultFilter"><option value="all">全部</option><option value="win">胜</option><option value="loss">负</option><option value="no_result">无胜负</option><option value="scheduled">待赛</option><option value="pending">赛果待补</option></select></label>
+              <label class="player-games-check" title="仅含公认个人赛（世界大赛不含中环杯、世界最强／最高棋士战及世界团体赛；其他分类不含团体赛）"><input type="checkbox" id="gamesStrictOnly"><span>严格口径</span></label>
               <label class="player-games-check"><input type="checkbox" id="gamesSgfOnly"><span>仅看有棋谱</span></label>
               <label><span>排序</span><select id="gamesSortOrder"><option value="desc">最新优先</option><option value="asc">最早优先</option></select></label>
               <label><span>每页</span><select id="gamesPageSize"><option value="25">25 局</option><option value="50">50 局</option><option value="100">100 局</option></select></label>
@@ -399,13 +412,16 @@
     ].map(([key, label]) => ({key, label, data: (summary.by_color || {})[key]}))
       .filter(r => r.data && r.data.total > 0);
 
+    const catSource = careerStrict && summary.by_category_strict ? summary.by_category_strict : (summary.by_category || {});
     const catRows = [
-      ['world', '世界大赛'],
-      ['women_world', '女子世界大赛'],
-      ['international', '其他国际比赛'],
-      ['domestic', '国内比赛']
-    ].map(([key, label]) => ({key, label, data: (summary.by_category || {})[key]}))
-      .filter(r => r.data && r.data.total > 0);
+      ['world', '世界大赛', 'world', 'main'],
+      ['world_all', '世界大赛（含预选）', 'world', 'all'],
+      ['women_world', '女子世界大赛', 'women_world', 'all'],
+      ['international', '其他国际比赛', 'international', 'all'],
+      ['domestic', '国内比赛', 'domestic', 'all']
+    ].map(([key, label, filterCat, filterStage]) => ({
+      key, label, filterCat, filterStage, data: catSource[key]
+    })).filter(r => r.data && r.data.total > 0);
 
     const countryRows = (summary.by_opponent_country || []).slice(0, 5).map(c => ({
       key: c.code,
@@ -414,25 +430,29 @@
       data: c
     }));
 
-    const breakdownCard = (title, items, filterType) => {
-      if (!items.length) return '';
+    const breakdownCard = (title, items, filterType, headAction = '') => {
+      if (!items.length && !headAction) return '';
       return `
         <div class="career-breakdown-card">
-          <h3>${E(title)}</h3>
-          <ul>${items.map(it => {
+          <div class="career-breakdown-head"><h3>${E(title)}</h3>${headAction}</div>
+          ${items.length ? `<ul>${items.map(it => {
             const d = it.data;
             const pct = d.win_rate != null ? Math.round(d.win_rate * 100) : 0;
             const rateLabel = d.win_rate != null ? `${pct}%` : '—';
+            const stageAttr = it.filterStage ? ` data-filter-stage="${E(it.filterStage)}"` : '';
+            const valAttr = it.filterCat || it.key;
             return `<li>
-              <button type="button" class="career-breakdown-row" data-filter-type="${E(filterType)}" data-filter-value="${E(it.key)}">
+              <button type="button" class="career-breakdown-row" data-filter-type="${E(filterType)}" data-filter-value="${E(valAttr)}"${stageAttr}>
                 <span class="career-breakdown-name">${it.flag || ''}${E(it.label)}</span>
                 <span class="career-breakdown-nums">${d.wins}胜 ${d.losses}负 · ${rateLabel}</span>
                 <span class="career-winbar" aria-hidden="true"><span style="width:${pct}%"></span></span>
               </button>
             </li>`;
-          }).join('')}</ul>
+          }).join('')}</ul>` : '<p class="career-breakdown-empty">当前口径下暂无对局记录。</p>'}
         </div>`;
     };
+
+    const strictToggleHtml = `<label class="player-strict-toggle" title="仅含公认个人赛（世界大赛不含中环杯、世界最强／最高棋士战及世界团体赛；其他分类不含团体赛）"><input type="checkbox" id="analyticsStrictToggle"${careerStrict ? ' checked' : ''}><span>严格口径</span></label>`;
 
     container.innerHTML = `
       <div class="career-annual-chart-wrap">
@@ -456,10 +476,15 @@
       </div>
       <div class="career-breakdown-grid">
         ${breakdownCard('执色胜负', colorRows, 'color')}
-        ${breakdownCard('赛事类别', catRows, 'category')}
+        ${breakdownCard('赛事类别', catRows, 'category', strictToggleHtml)}
         ${breakdownCard('对手国家／地区', countryRows, 'opp_country')}
       </div>`;
     container.hidden = false;
+
+    const analyticsStrictEl = document.getElementById('analyticsStrictToggle');
+    if (analyticsStrictEl) {
+      analyticsStrictEl.addEventListener('change', () => setCareerStrict(analyticsStrictEl.checked));
+    }
 
     container.querySelectorAll('.career-year-bar').forEach(el => {
       const pickYear = () => {
@@ -479,7 +504,13 @@
         const fVal = btn.dataset.filterValue;
         if (!fType || !fVal) return;
         if (fType === 'color') applyExternalGamesFilter({color: fVal});
-        else if (fType === 'category') applyExternalGamesFilter({category: fVal});
+        else if (fType === 'category') {
+          applyExternalGamesFilter({
+            category: fVal,
+            stage: btn.dataset.filterStage || 'all',
+            strict: careerStrict
+          });
+        }
         else if (fType === 'opp_country') applyExternalGamesFilter({opp_country: fVal});
       });
     });
@@ -545,6 +576,16 @@
   // ---------------------------------------------------------------------------
   // 历史对局：URL 同步、快捷芯片、局部 tbody 刷新与 AbortController
   // ---------------------------------------------------------------------------
+  function setCareerStrict(enabled) {
+    careerStrict = Boolean(enabled);
+    const analyticsToggle = document.getElementById('analyticsStrictToggle');
+    if (analyticsToggle) analyticsToggle.checked = careerStrict;
+    const careerToggle = document.getElementById('careerStrictToggle');
+    if (careerToggle) careerToggle.checked = careerStrict;
+    if (latestSummaryData) renderCareerAnalytics(latestSummaryData);
+    if (careerReady) render();
+  }
+
   function syncGamesFilterControls() {
     const setVal = (id, val) => {
       const el = document.getElementById(id);
@@ -554,6 +595,8 @@
     };
     setVal('gamesQueryInput', gamesFilterState.q);
     setVal('gamesCategoryFilter', gamesFilterState.category);
+    setVal('gamesStageFilter', gamesFilterState.stage);
+    setVal('gamesStrictOnly', gamesFilterState.strict);
     setVal('gamesColorFilter', gamesFilterState.color);
     setVal('gamesResultFilter', gamesFilterState.outcome);
     setVal('gamesSgfOnly', gamesFilterState.sgf_only);
@@ -564,7 +607,8 @@
       const chip = btn.dataset.gamesChip;
       let active = false;
       if (chip === 'all') {
-        active = !gamesFilterState.q && gamesFilterState.category === 'all' && gamesFilterState.color === 'all'
+        active = !gamesFilterState.q && gamesFilterState.category === 'all' && gamesFilterState.stage === 'all'
+          && !gamesFilterState.strict && gamesFilterState.color === 'all'
           && gamesFilterState.outcome === 'all' && !gamesFilterState.sgf_only
           && !gamesFilterState.year && !gamesFilterState.opp_country;
       } else if (chip === 'win') active = gamesFilterState.outcome === 'win';
@@ -577,6 +621,13 @@
     const pills = document.getElementById('gamesActivePills');
     if (pills) {
       const items = [];
+      if (gamesFilterState.stage !== 'all') {
+        const stageLabel = {main: '本赛', prelim: '预选', unclassified: '赛段待核'}[gamesFilterState.stage] || gamesFilterState.stage;
+        items.push(`<button type="button" class="player-filter-pill" data-clear-pill="stage">赛段：${E(stageLabel)} ×</button>`);
+      }
+      if (gamesFilterState.strict) {
+        items.push('<button type="button" class="player-filter-pill" data-clear-pill="strict">严格口径 ×</button>');
+      }
       if (gamesFilterState.year) {
         items.push(`<button type="button" class="player-filter-pill" data-clear-pill="year">${gamesFilterState.year} 年 ×</button>`);
       }
@@ -593,6 +644,8 @@
     Object.assign(gamesFilterState, {
       q: '',
       category: 'all',
+      stage: 'all',
+      strict: false,
       color: 'all',
       outcome: 'all',
       sgf_only: false,
@@ -642,16 +695,18 @@
     if (gamesController) gamesController.abort();
     gamesController = new AbortController();
 
-    const {q, category, color, outcome, sgf_only, sort, year, opp_country} = gamesFilterState;
-    const isFiltered = Boolean(q || category !== 'all' || color !== 'all' || outcome !== 'all'
-      || sgf_only || year || opp_country);
+    const {q, category, stage, strict, color, outcome, sgf_only, sort, year, opp_country} = gamesFilterState;
+    const isFiltered = Boolean(q || category !== 'all' || stage !== 'all' || strict
+      || color !== 'all' || outcome !== 'all' || sgf_only || year || opp_country);
     document.getElementById('gamesResetFilters').hidden = !isFiltered;
     body.setAttribute('aria-busy', 'true');
 
     let payload;
     try {
       const params = {
-        q, category, color, outcome,
+        q, category, stage,
+        strict: strict ? '1' : undefined,
+        color, outcome,
         sgf_only: sgf_only ? '1' : undefined,
         sort,
         year: year || undefined,
@@ -737,7 +792,8 @@
 
   const gamesToolbar = document.getElementById('playerGamesToolbar');
   const gamesControls = {
-    gamesQueryInput: 'q', gamesCategoryFilter: 'category', gamesColorFilter: 'color',
+    gamesQueryInput: 'q', gamesCategoryFilter: 'category', gamesStageFilter: 'stage',
+    gamesStrictOnly: 'strict', gamesColorFilter: 'color',
     gamesResultFilter: 'outcome', gamesSgfOnly: 'sgf_only', gamesSortOrder: 'sort'
   };
   let gamesSearchTimer;
@@ -774,13 +830,19 @@
     if (chipBtn) {
       const chip = chipBtn.dataset.gamesChip;
       if (chip === 'all') {
-        Object.assign(gamesFilterState, {q: '', category: 'all', color: 'all', outcome: 'all', sgf_only: false, year: null, opp_country: ''});
+        Object.assign(gamesFilterState, {q: '', category: 'all', stage: 'all', strict: false, color: 'all', outcome: 'all', sgf_only: false, year: null, opp_country: ''});
       } else if (chip === 'win' || chip === 'loss') {
         gamesFilterState.outcome = gamesFilterState.outcome === chip ? 'all' : chip;
       } else if (chip === 'sgf') {
         gamesFilterState.sgf_only = !gamesFilterState.sgf_only;
       } else if (chip === 'world') {
-        gamesFilterState.category = gamesFilterState.category === 'world' ? 'all' : 'world';
+        if (gamesFilterState.category === 'world') {
+          gamesFilterState.category = 'all';
+          if (gamesFilterState.stage === 'main') gamesFilterState.stage = 'all';
+        } else {
+          gamesFilterState.category = 'world';
+          gamesFilterState.stage = 'main';
+        }
       }
       refreshGames(true);
       return;
@@ -788,26 +850,30 @@
     const pillBtn = event.target instanceof Element ? event.target.closest('[data-clear-pill]') : null;
     if (pillBtn) {
       const key = pillBtn.dataset.clearPill;
-      if (key === 'year') gamesFilterState.year = null;
+      if (key === 'stage') gamesFilterState.stage = 'all';
+      else if (key === 'strict') gamesFilterState.strict = false;
+      else if (key === 'year') gamesFilterState.year = null;
       else if (key === 'opp_country') gamesFilterState.opp_country = '';
       refreshGames(true);
     }
   });
   document.getElementById('gamesResetFilters').onclick = () => {
-    Object.assign(gamesFilterState, {q: '', category: 'all', color: 'all', outcome: 'all', sgf_only: false, year: null, opp_country: ''});
+    Object.assign(gamesFilterState, {q: '', category: 'all', stage: 'all', strict: false, color: 'all', outcome: 'all', sgf_only: false, year: null, opp_country: ''});
     refreshGames(true);
   };
 
   window.addEventListener('popstate', () => {
     const next = readGamesUrlState();
     const changed = next.q !== gamesFilterState.q || next.category !== gamesFilterState.category
+      || next.stage !== gamesFilterState.stage || next.strict !== gamesFilterState.strict
       || next.color !== gamesFilterState.color || next.outcome !== gamesFilterState.outcome
       || next.sgf_only !== gamesFilterState.sgf_only || next.sort !== gamesFilterState.sort
       || next.year !== gamesFilterState.year || next.opp_country !== gamesFilterState.opp_country
       || next.page !== gamesPage || next.pageSize !== gamesPageSize;
     if (!changed) return;
     Object.assign(gamesFilterState, {
-      q: next.q, category: next.category, color: next.color, outcome: next.outcome,
+      q: next.q, category: next.category, stage: next.stage, strict: next.strict,
+      color: next.color, outcome: next.outcome,
       sgf_only: next.sgf_only, sort: next.sort, year: next.year, opp_country: next.opp_country
     });
     gamesPage = next.page;
@@ -921,8 +987,8 @@
       : resolvedDomestic.primaryCountry;
     const domesticLabel = domesticCode ? career.countryLabel(domesticCode) : '';
     const matrix = isDomestic
-      ? career.build(index, allData, activePlayer, {category: 'domestic', country: domesticCode})
-      : career.build(index, allData, activePlayer, {category: selected});
+      ? career.build(index, allData, activePlayer, {category: 'domestic', country: domesticCode, strict: careerStrict})
+      : career.build(index, allData, activePlayer, {category: selected, strict: careerStrict});
     const titleEl = document.getElementById('careerTitle');
     if (titleEl) titleEl.textContent = isDomestic ? '国内战绩' : '国际战绩';
     hasCareerRows = matrix.rows.length > 0;
@@ -1103,6 +1169,16 @@
       copyStyled(section, copy);
       copy.querySelector('.career-export-btn')?.remove();
       copy.querySelector('.career-matrix-tooltip')?.remove();
+      const copyStrictLabel = copy.querySelector('.player-strict-toggle');
+      if (copyStrictLabel) {
+        if (careerStrict) {
+          const badge = document.createElement('span');
+          badge.textContent = '严格口径';
+          copyStrictLabel.replaceWith(badge);
+        } else {
+          copyStrictLabel.remove();
+        }
+      }
 
       const copySelect = copy.querySelector('select');
       const scopeLabel = liveSelect.options[liveSelect.selectedIndex]?.textContent?.trim() || '战绩';
@@ -1199,6 +1275,7 @@
   }
 
   document.getElementById('careerCategory').onchange = render;
+  document.getElementById('careerStrictToggle').onchange = event => setCareerStrict(event.target.checked);
   document.getElementById('btnExportCareer').onclick = () => {
     exportCareerSnapshot().catch(error => console.error('Career snapshot export failed:', error));
   };
@@ -1214,7 +1291,8 @@
       if (aborted) return;
       if (!latestSummaryData) {
         const overview = career.build(index, allData, activePlayer);
-        const worldResults = overview.results.filter(r => !r.team && M.isWorld(indexById.get(r.editionId) || {}));
+        const isCore = meta => (typeof M.isCoreWorld === 'function' ? M.isCoreWorld(meta) : M.isWorld(meta));
+        const worldResults = overview.results.filter(r => !r.team && isCore(indexById.get(r.editionId) || {}));
         const titles = worldResults.filter(r => r.tone === 'champion');
         const runners = worldResults.filter(r => r.tone === 'runner');
         const stats = document.getElementById('playerCareerStats');

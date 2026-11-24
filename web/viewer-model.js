@@ -29,12 +29,27 @@
   const isWorld = item => (item.category || item.tournament?.category || 'world') === 'world';
   const categoryLabel = item => ({world: '世界大赛', women_world: '女子世界大赛', international: '其他国际比赛', domestic: '国内比赛'})[
     item.category || item.tournament?.category || 'world'] || '其他国际比赛';
+  const WORLD_BOUNDARY_TOURNAMENTS = new Set(['world_cmc', 'world_masters', 'bw_t_b947b606eb']);
+  const WORLD_TEAM_TOURNAMENTS = new Set(['nongshim', 'jinro', 'sbs_world', 'jinlongcheng_team']);
   const TEAM_TOURNAMENTS = new Set(['cwql', 'cwbl', 'cwcl', 'cwwl', 'cwwbl', 'kb',
     'kr_wleague', 'kr_senior', 'kr_futures', 'kr_challenge', 'kr_ggauction','kr_rookie_league','kr_olleh_giga','kr_queen_team','csk_cup']);
-  const isTeamCompetition = (data, meta = {}) => !!data.team_competition || meta.competition_type === 'team'
-    || data.competition_type === 'team' || TEAM_TOURNAMENTS.has(data.tournament?.id)
-    || /团体|團體|团队|擂台|围甲|圍甲/.test(data.tournament?.name_zh || '')
-    || (data.rounds || []).some(r => /(?:^|｜)(?:擂台赛|团体赛个人对局)｜/.test(r.round_name || ''));
+  const isTeamCompetition = (data, meta = {}) => !!data?.team_competition || meta?.competition_type === 'team'
+    || data?.competition_type === 'team' || TEAM_TOURNAMENTS.has(data?.tournament?.id || meta?.tournament_id)
+    || WORLD_TEAM_TOURNAMENTS.has(data?.tournament?.id || meta?.tournament_id)
+    || /团体|團體|团队|擂台|围甲|圍甲/.test(data?.tournament?.name_zh || meta?.tournament_name || '')
+    || (data?.rounds || []).some(r => /(?:^|｜)(?:擂台赛|团体赛个人对局)｜/.test(r.round_name || ''));
+  const worldTier = (item = {}, data = null) => {
+    const tid = item.tournament_id || item.tournamentId || data?.tournament?.id || '';
+    if (WORLD_TEAM_TOURNAMENTS.has(tid) || isTeamCompetition(data || item, item)) return 2;
+    if (WORLD_BOUNDARY_TOURNAMENTS.has(tid)) return 1;
+    return 0;
+  };
+  const isCoreWorld = (item, data = null) => isWorld(item || {}) && worldTier(item, data) === 0;
+  const isStrictEvent = (item = {}, data = null) => {
+    const cat = item.category || data?.tournament?.category || 'world';
+    if (cat === 'world') return worldTier(item, data) === 0;
+    return !isTeamCompetition(data || item, item);
+  };
   // Source-verified exceptions whose imported round labels omit the format.
   // Longxing changed to group ladders from edition 8 (Sport.gov.cn c22860930).
   // The inaugural Future Stars used two seven-player leagues (Korea Ki-in 1506).
@@ -1811,7 +1826,7 @@
     isPrelimRound, isUnclassifiedRound, isLeagueRound, isGroupTableRound, prelimRegionOf, prelimGroups, prelimGroupOf, prelimGroupTree, prelimTreeGroups, PRELIM_REGION_ORDER, roundDisplayName,
     aggregateSeries, finalSeries, seriesOutcomes, seriesGameLabel, singleGamePresentation, isFinalRound, sourceRoundsForView, roundsForView, renderedMatches, edgesForView, unconfirmedLinks, collectPlayers, doubleEliminationLanes, doubleEliminationBlocks, extractGroupDoubleElimination,
     supportsStageDrawView, compareDrawMatches, groupRoundMatchesForDrawView,
-    matchesPlayerQuery, findPlayer, comparePlayerGames, filterPlayerGames, playerGameRows, nativeNameHtml, isWorld, isTeamCompetition, isSingleGameFinal, editionFormatChip, categoryLabel, matchResult, winnerLabel, isNoResult, hasResult, bracketEdgesForView, editionPlayers, isGroupedPlayerLabel,
+    matchesPlayerQuery, findPlayer, comparePlayerGames, filterPlayerGames, playerGameRows, nativeNameHtml, isWorld, isCoreWorld, worldTier, isStrictEvent, WORLD_BOUNDARY_TOURNAMENTS, WORLD_TEAM_TOURNAMENTS, isTeamCompetition, isSingleGameFinal, editionFormatChip, categoryLabel, matchResult, winnerLabel, isNoResult, hasResult, bracketEdgesForView, editionPlayers, isGroupedPlayerLabel,
     matchStatus, statusLabel, STATUS_LABELS, hydrateSnapshot};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.GoViewerModel = api;

@@ -801,7 +801,12 @@ a.player-games-opponent:hover, a.player-games-opponent:focus-visible { color: va
 .career-rate-line { stroke: var(--accent-gold); stroke-width: 1.6; stroke-linejoin: round; pointer-events: none; }
 .career-breakdown-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .75rem; }
 .career-breakdown-card { padding: .7rem .85rem; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-primary); }
-.career-breakdown-card h3 { margin: 0 0 .5rem; font-size: var(--text-sm); }
+.career-breakdown-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 0 .5rem; }
+.career-breakdown-head h3 { margin: 0; font-size: var(--text-sm); }
+.career-breakdown-card > h3 { margin: 0 0 .5rem; font-size: var(--text-sm); }
+.career-breakdown-empty { margin: .25rem 0 0; font-size: var(--text-xs); color: var(--text-muted); }
+.player-strict-toggle { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
+.player-strict-toggle input { margin: 0; accent-color: var(--accent); cursor: pointer; }
 .career-breakdown-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
 .career-breakdown-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .25rem .5rem; padding: .35rem .45rem; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--text-main); font: inherit; font-size: var(--text-xs); text-align: left; cursor: pointer; }
 .career-breakdown-row:hover { background: var(--bg-secondary); border-color: var(--accent); }

@@ -214,9 +214,10 @@ function show(playerNameOrId) {
   const pName = pInfo ? pInfo.name_zh : playerNameOrId;
 
   // Count titles & runner ups in indexList
-  const champEditions = pInfo ? indexList.filter(x => M.isWorld(x) && x.champion_id === pInfo.id) : [];
-  const runnerEditions = pInfo ? indexList.filter(x => M.isWorld(x) && x.runner_up_id === pInfo.id) : [];
-  const otherResults = pInfo ? indexList.filter(x => !M.isWorld(x) && [x.champion_id,x.runner_up_id].includes(pInfo.id)) : [];
+  const isCoreWorld = x => (typeof M.isCoreWorld === 'function' ? M.isCoreWorld(x) : M.isWorld(x));
+  const champEditions = pInfo ? indexList.filter(x => isCoreWorld(x) && x.champion_id === pInfo.id) : [];
+  const runnerEditions = pInfo ? indexList.filter(x => isCoreWorld(x) && x.runner_up_id === pInfo.id) : [];
+  const otherResults = pInfo ? indexList.filter(x => !isCoreWorld(x) && [x.champion_id,x.runner_up_id].includes(pInfo.id)) : [];
 
   const drawer = document.getElementById("playerDrawer");
   const drawerTitle = document.getElementById("drawerPlayerName");

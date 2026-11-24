@@ -20,7 +20,7 @@
   ];
   const state = {
     a: '', b: '', view: 'games', category: 'all', tournament: '', stage: 'all',
-    competition: 'all', color: 'all', from: '', to: '', unknown: true,
+    competition: 'all', strict: false, color: 'all', from: '', to: '', unknown: true,
     result: 'all', sgf: false, page: 1, size: DEFAULT_SIZE,
   };
   const dom = {};
@@ -87,6 +87,7 @@
     }
     state.unknown = params.get('include_unknown_date') !== '0';
     state.sgf = params.get('only_with_sgf') === '1';
+    state.strict = params.get('strict') === '1';
     const page = Number(params.get('page'));
     state.page = Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
     const size = Number(params.get('page_size'));
@@ -105,6 +106,8 @@
     if (!state.unknown) url.searchParams.set('include_unknown_date', '0');
     url.searchParams.delete('only_with_sgf');
     if (state.sgf) url.searchParams.set('only_with_sgf', '1');
+    url.searchParams.delete('strict');
+    if (state.strict) url.searchParams.set('strict', '1');
     url.searchParams.delete('page');
     if (state.page > 1) url.searchParams.set('page', String(state.page));
     url.searchParams.delete('page_size');
@@ -151,6 +154,7 @@
     return {
       a: state.a, b: state.b, view: state.view, category: state.category,
       tournament: state.tournament, stage: state.stage, competition: state.competition,
+      strict: state.strict,
       a_color: state.color, date_from: state.from, date_to: state.to,
       include_unknown_date: state.unknown, result_status: state.result,
       only_with_sgf: state.sgf, page: state.page, page_size: state.size,
@@ -508,6 +512,7 @@
     dom.to.value = state.to;
     dom.unknown.checked = state.unknown;
     dom.sgf.checked = state.sgf;
+    if (dom.strict) dom.strict.checked = state.strict;
 
     // 系列赛页签继承赛事类别／赛事／个人团体与日期；其余单局筛选不适用时停用。
     const seriesView = state.view === 'series';
@@ -525,7 +530,7 @@
     if (presetBar) {
       const recent3yFrom = String(new Date().getFullYear() - 2);
       const isAll = state.category === 'all' && !state.tournament && state.stage === 'all'
-        && state.competition === 'all' && state.color === 'all' && !state.from && !state.to
+        && state.competition === 'all' && !state.strict && state.color === 'all' && !state.from && !state.to
         && state.unknown && state.result === 'all' && !state.sgf;
       presetBar.querySelectorAll('[data-h2h-preset]').forEach(btn => {
         const key = btn.dataset.h2hPreset;
@@ -707,7 +712,7 @@
       <p class="h2h-section-note">${E(coverage.scope_note || '')}</p>
       <ul class="h2h-note-list">
         <li>当前范围：${E(scope.category_label || '全部赛事')} · ${E(scope.stage_label || '全部赛段')} ·
-          ${E(scope.competition_label || '全部')} · ${E(scope.a_color_label || '全部执色')}${state.from || state.to
+          ${E(scope.competition_label || '全部')}${state.strict ? ' · 严格口径' : ''} · ${E(scope.a_color_label || '全部执色')}${state.from || state.to
             ? ` · 日期 ${E(state.from || '不限')} 至 ${E(state.to || '不限')}` : ''}${state.unknown ? '（含未知日期）' : '（不含未知日期）'}。</li>
         ${list}
         <li>胜率只按已保存的明确胜负计算：无胜负、待赛、赛果待补、统计待核与其他完成结果都不进入分母。</li>
@@ -873,6 +878,7 @@
     dom.result.addEventListener('change', event => reload('result', event.target.value));
     dom.unknown.addEventListener('change', event => reload('unknown', event.target.checked));
     dom.sgf.addEventListener('change', event => reload('sgf', event.target.checked));
+    if (dom.strict) dom.strict.addEventListener('change', event => reload('strict', event.target.checked));
     let dateTimer = 0;
     const dateChanged = () => {
       clearTimeout(dateTimer);
@@ -892,7 +898,7 @@
         const recent3yFrom = String(new Date().getFullYear() - 2);
         if (key === 'all') {
           Object.assign(state, {
-            category: 'all', tournament: '', stage: 'all', competition: 'all', color: 'all',
+            category: 'all', tournament: '', stage: 'all', competition: 'all', strict: false, color: 'all',
             from: '', to: '', unknown: true, result: 'all', sgf: false, page: 1,
           });
         } else if (key === 'world') {
@@ -917,7 +923,7 @@
     }
     dom.reset.addEventListener('click', () => {
       Object.assign(state, {
-        category: 'all', tournament: '', stage: 'all', competition: 'all', color: 'all',
+        category: 'all', tournament: '', stage: 'all', competition: 'all', strict: false, color: 'all',
         from: '', to: '', unknown: true, result: 'all', sgf: false, page: 1,
       });
       writeUrl(true);
@@ -972,6 +978,7 @@
     dom.tournament = $('h2hTournament');
     dom.stage = $('h2hStage');
     dom.competition = $('h2hCompetition');
+    dom.strict = $('h2hStrict');
     dom.color = $('h2hColor');
     dom.from = $('h2hFrom');
     dom.to = $('h2hTo');
