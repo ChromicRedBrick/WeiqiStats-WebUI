@@ -7750,45 +7750,146 @@ html.standalone-document { height: auto; min-height: 100%; overflow: auto; }
   font-weight: 600;
 }
 
-body[data-spoiler="hidden"] :is(.wiki-score-td, .wiki-r1-score, .player-outcome, .match-status-pill, .series-outcomes,
-  .series-game-winner, .series-game-result, .finals-score, .finals-champion, .finals-award-badge, .draw-winner-result,
-  .gsl-match-res, .gsl-adv-tag, .gsl-win-tag, .gsl-qualifiers, .gsl-card-extras,
-  #matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"]),
-  .player-games-result, .podium-name, .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally,
-  .career-matrix td, .recent-form-dots):not(.spoiler-revealed, .spoiler-revealed *) {
-  filter: blur(7px);
+/* 全站防剧透遮蔽规则：统一使用不透明中性遮罩，杜绝仅靠 blur 透出金银铜/红绿底色或文本长度 */
+body[data-spoiler="hidden"] {
+  --spoiler-mask-bg: color-mix(in srgb, var(--border-color) 62%, var(--bg-secondary));
+  --spoiler-mask-hover: color-mix(in srgb, var(--accent) 22%, var(--bg-secondary));
+}
+
+/* 1) 各类赛果、比分、胜负徽章、汇总统计：不透明中性色块遮蔽，点击单局/区块可单独揭示 */
+body[data-spoiler="hidden"] :is(
+  .wiki-score-td, .wiki-r1-score, .player-outcome, .match-status-pill, .series-outcomes,
+  .series-game-winner, .series-game-result, .finals-score, .finals-champion, .finals-award-badge,
+  .draw-winner-result, .gsl-match-res, .gsl-adv-tag, .gsl-win-tag, .gsl-qualifiers, .gsl-card-extras,
+  #matchesTableBody tr:not(.spoiler-revealed) td:nth-child(6),
+  .h2h-games-table tr:not(.spoiler-revealed) td:is([data-label="胜者"], [data-label="赛果"]),
+  .player-games-result .table-status, .player-games-detail, .player-games-summary,
+  #playerCareerStats [data-kpi="titles"] strong, #playerCareerStats [data-kpi="runners"] strong,
+  #playerCareerStats [data-kpi="record"] strong, #playerCareerTitles, #playerCareerAnalytics,
+  .recent-form-streak, .podium-box:not(.spoiler-revealed) :is(.podium-name, .podium-label),
+  .edition-item-sub, .catalog-recent-meta,
+  .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally, .h2h-colors,
+  .sgf-result-value, .sgf-meta-result, .sgf-result-comparison
+):not(.spoiler-revealed, .spoiler-revealed *) {
+  background: var(--spoiler-mask-bg) !important;
+  color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  border-radius: 4px;
   cursor: pointer;
   user-select: none;
 }
 
-body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-winner {
-  background: transparent;
-  box-shadow: none;
+body[data-spoiler="hidden"] :is(
+  .wiki-score-td, .wiki-r1-score, .finals-score,
+  #matchesTableBody tr:not(.spoiler-revealed) td:nth-child(6),
+  .h2h-games-table tr:not(.spoiler-revealed) td:is([data-label="胜者"], [data-label="赛果"]),
+  .podium-box:not(.spoiler-revealed) :is(.podium-name, .podium-label),
+  .player-games-result .table-status, .player-games-detail,
+  .sgf-result-value, .sgf-meta-result
+):not(.spoiler-revealed, .spoiler-revealed *):hover {
+  background: var(--spoiler-mask-hover) !important;
 }
 
-body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-winner .gsl-player-name {
-  color: var(--text-secondary);
-  font-weight: 400;
+body[data-spoiler="hidden"] :is(
+  #matchesTableBody tr:not(.spoiler-revealed) td:nth-child(6),
+  .h2h-games-table tr:not(.spoiler-revealed) td:is([data-label="胜者"], [data-label="赛果"]),
+  .podium-box:not(.spoiler-revealed) :is(.podium-name, .podium-label),
+  .h2h-bar, .h2h-figures, .h2h-colors, #playerCareerTitles, #playerCareerAnalytics,
+  .edition-item-sub, .catalog-recent-meta, .sgf-result-comparison
+):not(.spoiler-revealed, .spoiler-revealed *) * {
+  color: transparent !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  opacity: 0 !important;
 }
 
-body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-loser :is(.country-flag, .stone-icon) {
-  opacity: 1;
+body[data-spoiler="hidden"] .sgf-head-main:not(.spoiler-revealed) .sgf-player.winner {
+  background: var(--surface-page);
+  border-color: var(--border-default);
 }
 
+body[data-spoiler="hidden"] .sgf-head-main:not(.spoiler-revealed) .sgf-winner-mark {
+  display: none;
+}
+
+/* 2) 近 10 局圆点（棋手页与交锋页）：统一中性灰底，杜绝红绿胜负分布泄露 */
+body[data-spoiler="hidden"] :is(.player-recent-form, .h2h-recent-form):not(.spoiler-revealed) :is(.recent-form-dot, .h2h-form-dot) {
+  background: var(--spoiler-mask-bg) !important;
+  color: transparent !important;
+  border-color: var(--border-light) !important;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 3) 棋手世赛/国内成绩表矩阵：彻底抹除金银铜与进行中色块、斜体与文字，单击格子揭示后再点跳转 */
+body[data-spoiler="hidden"] .career-matrix td:not(.spoiler-revealed) .career-result {
+  background: var(--spoiler-mask-bg) !important;
+  color: transparent !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  border-color: var(--border-light) !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  user-select: none;
+}
+
+body[data-spoiler="hidden"] .career-matrix td:not(.spoiler-revealed) .career-result:hover {
+  background: var(--spoiler-mask-hover) !important;
+}
+
+body[data-spoiler="hidden"] .career-matrix td:not(.spoiler-revealed) .career-result * {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+
+/* 4) 晋级图 / 对阵图：第 1 轮中性化胜负样式，第 2 轮起及决赛/冠军框遮蔽晋级棋手名单与国旗，点击单局或轮次标题可逐步揭示 */
+body[data-spoiler="hidden"] .wiki-match-table:not(.spoiler-revealed) .wiki-player-row.winner,
+body[data-spoiler="hidden"] .wiki-r1-row:not(.spoiler-revealed) .wiki-r1-player.winner,
+body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-winner,
 body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.winner,
-body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.is-finals-champion {
-  background: transparent;
-  box-shadow: none;
+body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.is-finals-champion,
+body[data-spoiler="hidden"] .draw-match-unit:not(.spoiler-revealed) .draw-player-slip.is-winner {
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
+body[data-spoiler="hidden"] .wiki-match-table:not(.spoiler-revealed) .wiki-player-row.winner .wiki-pname,
+body[data-spoiler="hidden"] .wiki-r1-row:not(.spoiler-revealed) .wiki-r1-player.winner .wiki-pname,
+body[data-spoiler="hidden"] .gsl-match:not(.spoiler-revealed) .gsl-player-row.is-winner .gsl-player-name,
 body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.winner .player-name,
-body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.loser .player-name {
-  color: var(--text-secondary);
-  font-weight: 400;
+body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.loser .player-name,
+body[data-spoiler="hidden"] .draw-match-unit:not(.spoiler-revealed) .draw-player-slip.is-winner {
+  color: var(--text-secondary) !important;
+  font-weight: 400 !important;
 }
 
-body[data-spoiler="hidden"] :is(.match-card, .finals-container):not(.spoiler-revealed) .player-row.loser .country-flag {
-  opacity: 1;
+body[data-spoiler="hidden"] :is(.match-card, .finals-container, .gsl-match):not(.spoiler-revealed) :is(.player-row.loser, .gsl-player-row.is-loser) :is(.country-flag, .stone-icon) {
+  opacity: 1 !important;
+}
+
+/* 第 2 轮及后续晋级轮次：遮蔽晋级棋手姓名、国旗与来源徽章，防止从下一轮名单反推上一轮胜者 */
+body[data-spoiler="hidden"] .round-col:not(:first-of-type):not(.spoiler-revealed) :is(.wiki-match-table, .match-card, .finals-container, .wiki-finals-node):not(.spoiler-revealed) :is(.wiki-name-td, .player-name, .finals-player-name, .origin-badge, .drop-badge),
+body[data-spoiler="hidden"] .draw-stage-row:not(:first-of-type):not(.spoiler-revealed) :is(.draw-match-unit, .draw-final-unit, .draw-third-unit):not(.spoiler-revealed) :is(.draw-player-slip, .draw-final-player),
+body[data-spoiler="hidden"] .draw-winner-box:not(.spoiler-revealed) {
+  background: var(--spoiler-mask-bg) !important;
+  color: transparent !important;
+  border-color: var(--border-light) !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  user-select: none;
+}
+
+body[data-spoiler="hidden"] .round-col:not(:first-of-type):not(.spoiler-revealed) :is(.wiki-match-table, .match-card, .finals-container, .wiki-finals-node):not(.spoiler-revealed) :is(.wiki-name-td *, .player-row .country-flag, .player-row .stone-icon, .finals-player-name *),
+body[data-spoiler="hidden"] .draw-stage-row:not(:first-of-type):not(.spoiler-revealed) :is(.draw-match-unit, .draw-final-unit, .draw-third-unit):not(.spoiler-revealed) :is(.draw-player-slip *, .draw-final-player *),
+body[data-spoiler="hidden"] .draw-winner-box:not(.spoiler-revealed) * {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+
+body[data-spoiler="hidden"] .round-col:not(:first-of-type):not(.spoiler-revealed) :is(.wiki-round-pill, .round-title) {
+  cursor: pointer;
 }
 
 /* P1-3 交锋页快捷预设胶囊与摘要文字降噪 */

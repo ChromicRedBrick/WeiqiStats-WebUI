@@ -362,8 +362,9 @@ const find = window.GoViewerSgfFind;
     let diffAlert = '';
     if (mismatches.length > 0) {
       const summary = mismatches.map(m => m.message).join('；');
+      const spoilerClass = mismatches.some(m => m.field === 'result') ? ' class="sgf-result-value"' : '';
       diffAlert = `<div class="sgf-diff-alert" role="alert">
-        <span title="${E(summary)}">元数据差异：${E(summary)}</span>
+        <span${spoilerClass} title="${E(summary)}">元数据差异：${E(summary)}</span>
         <button type="button" class="sgf-diff-link" data-sgf-open-details>查看对照</button>
       </div>`;
     }
@@ -374,7 +375,7 @@ const find = window.GoViewerSgfFind;
         <strong class="sgf-match-title" role="heading" aria-level="2">${titleHtml}</strong>
         <div class="sgf-match-meta">
           <span>比赛日期：${E(dateStr)}</span>
-          <span>赛果：<strong>${E(resultStr)}</strong></span>
+          <span>赛果：<strong class="sgf-result-value">${E(resultStr)}</strong></span>
         </div>
         ${diffAlert}
       </div>
@@ -416,7 +417,7 @@ const find = window.GoViewerSgfFind;
             <div><dt>贴目</dt><dd>${E(meta.komi ?? '—')}</dd></div>
             <div><dt>让子</dt><dd>${E(meta.handicap ?? '—')}</dd></div>
             <div><dt>棋谱日期</dt><dd>${E(meta.date || '—')}</dd></div>
-            <div><dt>棋谱赛果</dt><dd>${E(meta.result || '—')}</dd></div>
+            <div><dt>棋谱赛果</dt><dd class="sgf-meta-result">${E(meta.result || '—')}</dd></div>
           </dl>
         </div>
 
@@ -446,7 +447,7 @@ const find = window.GoViewerSgfFind;
           <h5>SGF 与数据库资料对照</h5>
           <div class="sgf-compare" role="table" aria-label="SGF与数据库资料比较">
             ${comparison.comparisons.map(item => `
-              <div class="sgf-compare-row ${item.status}" role="row">
+              <div class="sgf-compare-row ${item.status}${item.field === 'result' ? ' sgf-result-comparison' : ''}" role="row">
                 <span>${E(item.label)}</span>
                 <span>SGF：${E(item.sgf)}</span>
                 <span>数据库：${E(item.database)}</span>
@@ -456,7 +457,7 @@ const find = window.GoViewerSgfFind;
           ${comparison.mismatches?.length ? `
             <div class="sgf-mismatch">
               <strong>差异说明</strong>
-              <ul>${comparison.mismatches.map(item => `<li>${E(item.message)}</li>`).join('')}</ul>
+              <ul>${comparison.mismatches.map(item => `<li${item.field === 'result' ? ' class="sgf-result-value"' : ''}>${E(item.message)}</li>`).join('')}</ul>
               <p>不会自动覆盖数据库资料或原始 SGF。</p>
             </div>` : '<p class="sgf-ok">未发现姓名、日期或赛果的明确不一致。</p>'}
         </div>` : ''}

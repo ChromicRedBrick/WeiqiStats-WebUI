@@ -1,0 +1,321 @@
+/*!
+ * 国际围棋赛事档案 — 年度对局独立页样式（annual.html 专用）
+ */
+
+body.annual-page {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  display: block;
+}
+
+.annual-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem 1.25rem;
+  padding: .9rem clamp(1rem, 4vw, 4rem);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.annual-nav-title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.annual-nav-meta {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.annual-main {
+  max-width: 1280px;
+  margin: auto;
+  padding: 1.5rem clamp(1rem, 3.5vw, 3rem) 4rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.annual-status {
+  margin: 0;
+  padding: .65rem .9rem;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+}
+
+.annual-status[hidden],
+#annualRetry[hidden] {
+  display: none;
+}
+
+.annual-status[data-tone="error"] {
+  border-left-color: var(--danger-border);
+  color: var(--danger-fill);
+  background: var(--state-danger-bg);
+}
+
+.annual-status[data-tone="empty"] {
+  border-left-color: var(--state-warning-border);
+  background: var(--state-warning-bg);
+  color: var(--state-warning-text);
+}
+
+#annualRetry {
+  align-self: flex-start;
+}
+
+.annual-card {
+  padding: 1rem 1.15rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+}
+
+/* --- 年份选择区 ------------------------------------------------------- */
+
+.annual-year-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .85rem 1.25rem;
+  margin-bottom: .85rem;
+}
+
+.annual-year-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  min-width: 0;
+}
+
+.annual-heading {
+  margin: 0;
+  font-size: clamp(1.2rem, 2.2vw, 1.5rem);
+  line-height: 1.25;
+  color: var(--text-main);
+}
+
+.annual-year-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem .85rem;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.annual-year-stat strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.annual-year-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.annual-year-picker select {
+  min-width: 11.5rem;
+  padding: .42rem .65rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font: inherit;
+}
+
+.annual-year-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.annual-year-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .34rem .72rem;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+}
+
+.annual-year-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-main);
+}
+
+.annual-year-chip.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.annual-year-chip-count {
+  font-size: var(--text-xs);
+  opacity: .8;
+}
+
+/* --- 筛选区 ----------------------------------------------------------- */
+
+.annual-filter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .65rem .85rem;
+}
+
+.annual-filter-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: .28rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.annual-filter-grid select,
+.annual-filter-grid input[type="search"] {
+  height: 2.1rem;
+  padding: .3rem .6rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.annual-query-field input[type="search"] {
+  min-width: 13rem;
+}
+
+.annual-filter-grid label.annual-check {
+  flex-direction: row;
+  align-items: center;
+  gap: .4rem;
+  height: 2.1rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.annual-filter-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+/* --- 列表与表格 ------------------------------------------------------- */
+
+.annual-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+.annual-list-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-main);
+}
+
+.annual-table-scroll {
+  overflow-x: auto;
+}
+
+.annual-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.annual-table .annual-player-link {
+  color: var(--text-main);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+.annual-table .annual-player-link:hover,
+.annual-table .annual-player-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.annual-edition-link {
+  color: var(--text-main);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.annual-edition-link:hover,
+.annual-edition-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.annual-date-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-pager {
+  margin-top: .9rem;
+}
+
+/* 防剧透模式：以不透明中性色块遮蔽年度对局赛果，点击单行赛果可单独揭示 */
+body[data-spoiler="hidden"] .annual-table tr:not(.spoiler-revealed) .annual-result-cell:not(.spoiler-revealed) {
+  background: var(--spoiler-mask-bg, color-mix(in srgb, var(--border-color) 62%, var(--bg-secondary))) !important;
+  color: transparent !important;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+body[data-spoiler="hidden"] .annual-table tr:not(.spoiler-revealed) .annual-result-cell:not(.spoiler-revealed):hover {
+  background: var(--spoiler-mask-hover, color-mix(in srgb, var(--accent) 22%, var(--bg-secondary))) !important;
+}
+
+@media (max-width: 760px) {
+  .annual-main {
+    padding: 1rem .85rem 3rem;
+  }
+
+  .annual-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .annual-query-field {
+    grid-column: 1 / -1;
+  }
+
+  .annual-query-field input[type="search"] {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .annual-filter-actions {
+    margin-left: 0;
+    grid-column: 1 / -1;
+  }
+}

@@ -366,12 +366,14 @@
     function commandDefinitions() {
       if (standalone) return [
         {section: 'nav', label: '赛事档案', icon: 'calendar', keywords: '赛事 目录', run: () => { location.href = 'index.html'; }},
+        {section: 'nav', label: '年度对局', icon: 'calendar', keywords: '年度 历史 对局 列表 annual games', run: () => { location.href = 'annual.html'; }},
         {section: 'nav', label: '对手交锋', icon: 'person', keywords: '对手 交锋', run: () => { location.href = 'head-to-head.html'; }},
         {section: 'nav', label: '等级分', icon: 'trophy', keywords: '等级分 榜单', run: () => { location.href = 'ratings.html'; }},
         ...themeCommands,
         {section: 'view', id: 'spoiler-toggle', label: document.body.dataset.spoiler === 'hidden' ? '关闭防剧透模式（显示赛果）' : '开启防剧透模式（隐藏赛果）', meta: '可点击单局单独揭示', icon: 'eye', keywords: '防剧透 剧透 隐藏 赛果 spoiler', run: () => window.GoViewerSpoiler?.toggle?.()},
       ];
       const definitions = [
+        {section: 'nav', id: 'annual', label: '打开年度对局', meta: '按年份倒序浏览历史对局', icon: 'calendar', keywords: '年度 历史 对局 列表 annual games', run: () => { location.href = 'annual.html'; }},
         {section: 'nav', id: 'people', label: '打开人物档案', meta: '搜索、查看与新建人物', icon: 'person', keywords: '人物 棋手 档案 people player', run: () => click('btnPeople')},
         {section: 'nav', id: 'ratings', label: '打开等级分工作区', meta: '榜单、对比与走势', icon: 'trophy', keywords: '等级分 榜单 排名 对比 走势 ratings ranking', run: () => click('btnRatings')},
         {section: 'nav', id: 'review', label: '打开待核工作区', meta: '连续核查、记录结论与撤销', icon: 'review', keywords: '待核 核查 问题 review issue', run: () => click('btnReview')},
@@ -707,6 +709,7 @@
     const {standalonePage: active, themeToggleId: themeId} = document.body.dataset;
     const navItems = [
       {key: 'tournaments', label: '赛事资料', href: 'index.html'},
+      {key: 'annual', label: '年度对局', href: 'annual.html'},
       {key: 'player', label: '人物档案', href: 'index.html#people'},
       {key: 'ratings', label: '等级分', href: 'ratings.html'},
       {key: 'h2h', label: '对手交锋', href: 'head-to-head.html'}
@@ -831,20 +834,135 @@
       }
     });
 
-    // 点击赛果先揭示，保留对局卡片和「详情」原有的打开行为。
+    function restoreTitles(rootEl = document) {
+      rootEl.querySelectorAll('[data-spoiler-title]').forEach(el => {
+        if (!el.getAttribute('title')) {
+          el.setAttribute('title', el.dataset.spoilerTitle || '');
+        }
+        delete el.dataset.spoilerTitle;
+      });
+    }
+
+    window.addEventListener('go:spoiler-changed', event => {
+      if (!event.detail || !event.detail.hidden) restoreTitles(document);
+    });
+
+    // 悬停/聚焦未揭示的防剧透区域时临时移出原生 title，防止浏览器原生提示框直接剧透赛果或名次。
+    function stripMaskedTitles(event) {
+      if (!spoilerMemoryHidden || !(event.target instanceof Element)) return;
+      const el = event.target.closest('[title]');
+      if (!el) return;
+      if (el.closest('.spoiler-revealed')) return;
+      const maskedHost = el.closest(
+        '.career-matrix td, .wiki-r1-score, .wiki-score-td, .wiki-match-table, .match-card, .finals-container, ' +
+        '.draw-winner-box, .player-recent-form, .h2h-recent-form, .player-games-result, .annual-result-cell, ' +
+        '#matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"]), .podium-box, .sgf-result-value'
+      );
+      if (!maskedHost) return;
+      if (maskedHost.classList.contains('wiki-match-table') || maskedHost.classList.contains('match-card')) {
+        const col = maskedHost.closest('.round-col');
+        const isFirstRound = col && col === col.parentElement?.querySelector('.round-col');
+        if (isFirstRound && !el.closest('.wiki-score-td, .wiki-r1-score, .player-outcome')) return;
+      }
+      el.dataset.spoilerTitle = el.getAttribute('title') || '';
+      el.removeAttribute('title');
+    }
+    document.addEventListener('mouseover', stripMaskedTitles, true);
+    document.addEventListener('focusin', stripMaskedTitles, true);
+
+    // 统一单击揭示交互：
+    // - 棋手世赛成绩表单元格：首次点击先揭示该格战绩与色块，再次点击才跳转对应届次；
+    // - 对阵图第 2 轮起：点击单局卡片/表格可揭示该局晋级名单与比分，点击轮次标题可揭示整轮；
+    // - 各类历史对局列表：点击赛果区揭示该局胜负，且绝不拦截「棋谱」或「定位」链接；
+    // - 棋谱弹窗、冠亚台、近 10 局、交锋汇总：点击对应遮罩块即可单独揭示。
     document.addEventListener('click', event => {
       if (!spoilerMemoryHidden || !(event.target instanceof Element)) return;
       const source = event.target;
+
+      // 放行棋谱链接与定位链接，保证防剧透下可直接打开棋谱复盘
+      if (source.closest('.player-games-sgf-btn, a[data-sgf-link="1"], .table-sgf, .table-locate')) return;
+
+      // 1) 棋手世赛/国内成绩表单元格（含内部 <a>）：未揭示时先阻止跳转并揭示
+      const careerTd = source.closest('.career-matrix td');
+      if (careerTd && careerTd.querySelector('.career-result') && !careerTd.classList.contains('spoiler-revealed')) {
+        event.preventDefault();
+        event.stopPropagation();
+        careerTd.classList.add('spoiler-revealed');
+        restoreTitles(careerTd);
+        return;
+      }
+
+      // 2) 对阵图第 2 轮起轮次标题：点击可整轮揭示/重新隐藏
+      const roundHeader = source.closest('.round-col:not(:first-of-type) .wiki-round-pill, .round-col:not(:first-of-type) .round-title');
+      if (roundHeader) {
+        const col = roundHeader.closest('.round-col');
+        if (col && !col.classList.contains('spoiler-revealed')) {
+          event.preventDefault();
+          event.stopPropagation();
+          col.classList.add('spoiler-revealed');
+          restoreTitles(col);
+          return;
+        }
+      }
+
+      // 3) 对阵图第 2 轮起单局卡片/表格与抽签展板冠军/胜者框：未揭示时先阻止跳棋手页并揭示该局
+      const laterCol = source.closest('.round-col:not(:first-of-type):not(.spoiler-revealed), .draw-stage-row:not(:first-of-type):not(.spoiler-revealed)');
+      if (laterCol) {
+        const matchUnit = source.closest('.wiki-match-table, .match-card, .finals-container, .wiki-finals-node, .draw-match-unit, .draw-final-unit, .draw-third-unit');
+        if (matchUnit && !matchUnit.classList.contains('spoiler-revealed') && !source.closest('.match-details-btn')) {
+          event.preventDefault();
+          event.stopPropagation();
+          matchUnit.classList.add('spoiler-revealed');
+          restoreTitles(matchUnit);
+          return;
+        }
+      }
+      const winnerBox = source.closest('.draw-winner-box');
+      if (winnerBox && !winnerBox.classList.contains('spoiler-revealed')) {
+        event.preventDefault();
+        event.stopPropagation();
+        winnerBox.classList.add('spoiler-revealed');
+        restoreTitles(winnerBox);
+        return;
+      }
+
+      // 4) 横幅冠亚台：首次点击揭示冠亚与比分，再次点击才可点棋手名打开抽屉
+      const podiumBox = source.closest('#bannerPodium .podium-box');
+      if (podiumBox && !podiumBox.classList.contains('spoiler-revealed')) {
+        event.preventDefault();
+        event.stopPropagation();
+        podiumBox.classList.add('spoiler-revealed');
+        restoreTitles(podiumBox);
+        return;
+      }
+
+      // 5) 棋手页/交锋页近 10 局圆点（含 <a>）：首次点击揭示全排圆点，再次点击才跳转对局
+      const recentForm = source.closest('.player-recent-form, .h2h-recent-form');
+      if (recentForm && !recentForm.classList.contains('spoiler-revealed')) {
+        event.preventDefault();
+        event.stopPropagation();
+        recentForm.classList.add('spoiler-revealed');
+        restoreTitles(recentForm);
+        return;
+      }
+
+      // 6) 其他普通赛果、列表行与统计汇总块
       const control = source.closest('a, button, input, select');
-      const score = source.closest('.wiki-score-td, .wiki-r1-score, .player-outcome, .match-status-pill, .series-outcomes, .series-game-winner, .series-game-result, .finals-score, .finals-champion, .draw-winner-result, #matchesTableBody td:nth-child(6), .h2h-games-table td:is([data-label="胜者"], [data-label="赛果"])');
+      const score = source.closest(
+        '.wiki-score-td, .wiki-r1-score, .player-outcome, .match-status-pill, .series-outcomes, ' +
+        '.series-game-winner, .series-game-result, .finals-score, .finals-champion, .draw-winner-result, ' +
+        '#matchesTableBody td:nth-child(6), .annual-result-cell, ' +
+        '.h2h-games-table td:is([data-label="胜者"], [data-label="赛果"]), ' +
+        '.sgf-result-value, .sgf-meta-result, .sgf-result-comparison'
+      );
       const target = score
-        ? score.closest('.wiki-match-table, .wiki-r1-row, .match-card, .series-game-row, .finals-container, .wiki-finals-node, .draw-winner-box, tr[data-table-match], .h2h-games-table tr') || score
-        : source.closest('.player-games-result, .podium-name, .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally, .player-recent-form, .h2h-recent-form, .career-matrix td');
+        ? score.closest('.wiki-match-table, .wiki-r1-row, .match-card, .series-game-row, .finals-container, .wiki-finals-node, .draw-winner-box, tr[data-table-match], tr[data-annual-match], .h2h-games-table tr, .sgf-head-main, .sgf-meta-grid') || score
+        : source.closest('.player-games-result, .player-games-summary, #playerCareerStats [data-kpi], #playerCareerTitles, #playerCareerAnalytics, .h2h-bar, .h2h-figures, .h2h-rate, .h2h-tally, .h2h-colors');
       if (!target || control) return;
-      if (control && target.classList.contains('spoiler-revealed')) return;
       event.preventDefault();
       event.stopPropagation();
       target.classList.toggle('spoiler-revealed');
+      if (target.classList.contains('spoiler-revealed')) restoreTitles(target);
     }, true);
   }
 

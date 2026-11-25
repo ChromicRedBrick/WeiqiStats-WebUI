@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="standalone-document">
+<head>
+  <script>window.GO_STATS_DATA_MODE = "public";</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>年度对局 · 国际围棋赛事档案</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="viewer-tokens.css">
+  <link rel="stylesheet" href="viewer.css">
+  <link rel="stylesheet" href="viewer-annual.css">
+  <link rel="stylesheet" href="viewer-sgf.css">
+  <link rel="stylesheet" href="viewer-dialogs.css">
+</head>
+<body class="annual-page" data-standalone-page="annual" data-theme-toggle-id="annualTheme">
+  <script src="viewer-theme-boot.js"></script>
+
+  <nav class="subpage-bar annual-nav" aria-label="年度对局导航">
+    <span class="annual-nav-title">年度对局</span>
+    <span class="annual-nav-meta" id="annualNavMeta">按年份倒序浏览历史对局</span>
+  </nav>
+
+  <main class="annual-main" id="annualMain">
+    <p class="annual-status" id="annualStatus" role="status" aria-live="polite" hidden></p>
+    <button type="button" class="btn btn-sm" id="annualRetry" hidden>重试加载</button>
+
+    <section class="annual-card annual-year-section" id="annualYearSection" aria-label="年份选择">
+      <div class="annual-year-head">
+        <div class="annual-year-title-group">
+          <h1 class="annual-heading" id="annualHeading">年度对局</h1>
+          <div class="annual-year-stats" id="annualYearStats" aria-live="polite"></div>
+        </div>
+        <label class="annual-year-picker">
+          <span>切换年份</span>
+          <select id="annualYearSelect" aria-label="选择年份"></select>
+        </label>
+      </div>
+      <div class="annual-year-chips" id="annualYearChips" role="group" aria-label="近年快捷切换"></div>
+    </section>
+
+    <section class="annual-card annual-filters" id="annualFilters" aria-label="筛选条件">
+      <div class="annual-filter-grid">
+        <label>
+          <span>赛事大类</span>
+          <select id="annualCategory">
+            <option value="">全部大类</option>
+          </select>
+        </label>
+        <label>
+          <span>赛事</span>
+          <select id="annualTournament">
+            <option value="">全部赛事</option>
+          </select>
+        </label>
+        <label class="annual-query-field">
+          <span>棋手或编号</span>
+          <input type="search" id="annualQuery" placeholder="姓名、别名或对局编号" autocomplete="off">
+        </label>
+        <label>
+          <span>资料状态</span>
+          <select id="annualStatusFilter">
+            <option value="">全部状态</option>
+            <option value="decided">有胜负</option>
+            <option value="no_result">无胜负</option>
+            <option value="scheduled">待赛</option>
+            <option value="pending">赛果待补</option>
+          </select>
+        </label>
+        <label>
+          <span>排序</span>
+          <select id="annualSort">
+            <option value="date_desc">日期：新→旧</option>
+            <option value="date_asc">日期：旧→新</option>
+          </select>
+        </label>
+        <label class="annual-check">
+          <input type="checkbox" id="annualSgfOnly">
+          <span>仅看有棋谱</span>
+        </label>
+        <div class="annual-filter-actions">
+          <button type="button" class="btn" id="annualReset">重置筛选</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="annual-card annual-list" id="annualList" aria-labelledby="annualListTitle">
+      <div class="annual-list-head">
+        <h2 id="annualListTitle">对局列表</h2>
+        <span class="table-count" id="annualCount" role="status" aria-live="polite"></span>
+      </div>
+      <div class="table-scroll annual-table-scroll">
+        <table class="matches-table annual-table" id="annualTable">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>赛事与届次</th>
+              <th>轮次</th>
+              <th>黑方</th>
+              <th>白方</th>
+              <th>赛果</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="annualTableBody"></tbody>
+        </table>
+      </div>
+      <div class="table-pager annual-pager" id="annualPager">
+        <button type="button" class="btn" id="annualPrev" disabled>上一页</button>
+        <span id="annualPageInfo">第 1 / 1 页</span>
+        <button type="button" class="btn" id="annualNext" disabled>下一页</button>
+      </div>
+    </section>
+  </main>
+
+  <noscript><p class="annual-status">本页需要启用 JavaScript 才能加载年度对局资料。</p></noscript>
+
+  <script src="viewer-flags.js"></script>
+  <script src="viewer-theme.js"></script>
+  <script src="viewer-data-client.js"></script>
+  <script src="viewer-model.js"></script>
+  <script src="viewer-shell.js"></script>
+  <script src="viewer-sgf-host.js"></script>
+  <script src="viewer-annual.js"></script>
+</body>
+</html>

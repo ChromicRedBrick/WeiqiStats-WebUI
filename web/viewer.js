@@ -2208,7 +2208,8 @@
           if (m) {
             const winner = m.winner || {};
             const [cand1, cand2] = M.participants(m);
-            const advancing = winner.id ? winner : (slot.p?.id ? slot.p : cand1);
+            const spoilerHidden = Boolean(window.GoViewerSpoiler?.isHidden?.());
+            const advancing = spoilerHidden ? cand1 : (winner.id ? winner : (slot.p?.id ? slot.p : cand1));
             const opponent = M.samePlayer(advancing, cand1) ? cand2 : cand1;
 
             const advName = advancing.name_zh || "待定";
@@ -2319,8 +2320,9 @@
           const winner = m.winner || {};
           const isDecided = !!winner.id;
 
+          const spoilerHidden = Boolean(window.GoViewerSpoiler?.isHidden?.());
           let adv = p1, opp = p2;
-          if (isDecided && M.samePlayer(winner, p2)) {
+          if (!spoilerHidden && isDecided && M.samePlayer(winner, p2)) {
             adv = p2;
             opp = p1;
           }
@@ -3173,6 +3175,7 @@
 
       // Highlight Player's Path
       function highlightPlayer(playerName) {
+        if (window.GoViewerSpoiler?.isHidden?.()) return;
         if (!hoverTrackEnabled) return;
         if (!playerName || playerName === "轮空 / 待定" || playerName.includes("轮空")) return;
         activeHighlightPlayer = playerName;
@@ -3991,6 +3994,13 @@ window.showPlayer = function(playerNameOrId) {
         // Window resize & dynamic layout/numbering redraw connectors
         window.addEventListener('resize', requestDraw);
         window.addEventListener('go:numbering-decorated', requestDraw);
+        window.addEventListener('go:spoiler-changed', () => {
+          const data = allData[currentEditionId];
+          if (!data) return;
+          clearHighlight();
+          renderCurrentBracket(data);
+          requestDraw();
+        });
         window.addEventListener('go:sidebar-toggled', () => {
           if (allData[currentEditionId]) {
             frameCurrentView();

@@ -671,7 +671,7 @@
     const tone = row.outcome.key === 'loss' ? 'player-games-loss'
       : row.outcome.key === 'win' ? '' : `table-status-${row.outcome.key}`;
     const detail = row.outcome.detail && row.outcome.detail !== row.outcome.label
-      ? `<small>${row.outcome.key === 'loss' ? '对手' : ''}${E(row.outcome.detail)}</small>` : '';
+      ? `<small class="player-games-detail">${row.outcome.key === 'loss' ? '对手' : ''}${E(row.outcome.detail)}</small>` : '';
     const link = `index.html?ed=${encodeURIComponent(row.editionId)}&amp;match=${encodeURIComponent(row.id)}`;
     const sgfBtn = row.hasSgf
       ? `<a class="btn btn-small player-games-sgf-btn" href="${link}&amp;tab=sgf" data-sgf-link="1" aria-label="查看棋谱" title="查看棋谱">棋谱</a>`
@@ -1035,6 +1035,10 @@
     const showMatrixTip = el => {
       const tip = document.getElementById('careerMatrixTooltip');
       if (!tip || !el.dataset.hoverHead) return;
+      if (window.GoViewerSpoiler?.isHidden?.() && !el.closest('td')?.classList.contains('spoiler-revealed')) {
+        hideMatrixTip();
+        return;
+      }
       tip.innerHTML = `<strong>${E(el.dataset.hoverHead)}</strong><span>${E(el.dataset.hoverStage || '')}</span>${el.dataset.hoverDetail ? `<small>${E(el.dataset.hoverDetail)}</small>` : ''}`;
       tip.hidden = false;
       const wrapRect = matrixWrap.getBoundingClientRect();

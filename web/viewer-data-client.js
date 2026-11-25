@@ -411,7 +411,10 @@
       state.inflight.set(id, task);
       return task;
     },
-    search(params) { return request('/matches', params); },
+    annualYears(options) {
+      return cachedQuery('annual:years', () => request('/annual/years', {}, options), options);
+    },
+    search(params, options) { return request('/matches', params, options); },
     searchCatalog(q, limit) { return this.catalogSearch(q, limit); },
     async catalogFeatured(opts) {
       const o = opts || {};
@@ -564,7 +567,10 @@
       state.inflight.set(id, task);
       return task;
     },
-    search(params) { return requestPageData('/matches', params); },
+    annualYears(options) {
+      return cachedQuery('annual:years', () => requestPageData('/annual/years', {}, options), options);
+    },
+    search(params, options) { return requestPageData('/matches', params, options); },
     searchCatalog(q, limit) { return this.catalogSearch(q, limit); },
     async catalogFeatured(opts) {
       const o = opts || {};
@@ -680,7 +686,8 @@
     catalogOptions: () => backend.catalogOptions(),
     getCachedTournamentEditions: tid => (state.cachedTournamentEditions.get(tid) || {}).items || null,
     getCachedOptions: () => (state.cachedOptions || {}).tournaments || null,
-    search: params => backend.search(params),
+    annualYears: options => backend.annualYears(options),
+    search: (params, options) => backend.search(params, options),
     searchCatalog: (q, limit) => backend.searchCatalog(q, limit),
     player: (id, params, options) => backend.player(id, params, options),
     playerSummary: (id, options) => backend.playerSummary ? backend.playerSummary(id, options) : Promise.resolve(null),
