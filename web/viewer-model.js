@@ -57,6 +57,8 @@
     (data.tournament?.id === 'longxing_cn' && Number(data.edition?.edition_number) >= 8)
     || data.edition?.id === 'kr_future_01'
     || (data.tournament?.id === 'wangzhongwang' && Number(data.edition?.edition_number) === 1);
+  const isRyuseiLadderRound = (data, round) => data.tournament?.id === 'jp_ryusei'
+    && /^本戦｜[A-H]组$/.test(round.round_name || '');
   const SINGLE_GAME_FINALS_RE = /^(?:单局|一局|单番棋|单局决胜|一局决胜)$/;
   function isSingleGameFinal(data, meta = {}) {
     if (isTeamCompetition(data, meta)) return false;
@@ -1361,7 +1363,8 @@
     // League qualification is decided by group standings, not the winner of
     // the last recorded individual game (Korea Ki-in's inaugural Future Stars).
     if (data.edition?.id === 'kr_future_01') return [];
-    const {mainRounds} = view;
+    // Each Ryusei block qualifies by longest streak and final survivor.
+    const mainRounds = view.mainRounds.filter(r => !isRyuseiLadderRound(data, r));
     const knockout = mainRounds.filter(r => !isLeagueRound(r));
     const penultimate = knockout.at(-2), final = knockout.at(-1);
     const rounds = mainRounds.map(r => r === penultimate
@@ -1489,7 +1492,8 @@
   // Keep incomplete draws anchored at their last identified stage; never infer
   // missing games or a route from row order. This is a display copy only.
   function roundsForView(data) {
-    const view = sourceRoundsForView(data), rounds = view.mainRounds;
+    const view = sourceRoundsForView(data);
+    const rounds = view.mainRounds.filter(r => !isRyuseiLadderRound(data, r));
     const excluded = isTeamCompetition(data) || isMixedEliminationDraw(data) || rounds.some(r => isLeagueRound(r)
       || /双败|雙敗|败者|敗者|败部|小组|小組/.test(r.round_name || '')
       || r.matches.some(m => m.draw_stage || /^GRP-/.test(m.bracket_code || '')))
@@ -1534,7 +1538,8 @@
       kept.add(id); adjacent.get(id)?.forEach(other => queue.push(other));
     }
     const orphanRounds = [], mainRounds = [];
-    rounds.forEach(r => {
+    view.mainRounds.forEach(r => {
+      if (isRyuseiLadderRound(data, r)) {mainRounds.push(r); return;}
       const hidden = r.matches.filter(m => !kept.has(byId.get(m.id)?.id));
       const visible = r.matches.filter(m => kept.has(byId.get(m.id)?.id));
       if (hidden.length) orphanRounds.push({...r, matches:hidden, orphaned:true,
@@ -1555,7 +1560,8 @@
   }
   function bracketEdgesForView(data, viewMode) {
     if (isTeamCompetition(data)) return [];
-    const edges=edgesForView(data), rounds=roundsForView(data).mainRounds;
+    const edges=edgesForView(data);
+    const rounds=roundsForView(data).mainRounds.filter(r => !isRyuseiLadderRound(data, r));
     rounds.slice(0,-1).forEach((round,i)=>round.matches.forEach(source=>{
       if(source.winner?.id) return;
       const target=rounds[i+1].matches.find(m=>m.id===source.next_match_id);
@@ -1597,7 +1603,7 @@
     if (!data || isTeamCompetition(data) || isMixedEliminationDraw(data)) return false;
     const rawMain = sourceRoundsForView(data).mainRounds || [];
     if (rawMain.length < 2) return false;
-    const excluded = rawMain.some(r => isLeagueRound(r)
+    const excluded = rawMain.some(r => isLeagueRound(r) || isRyuseiLadderRound(data, r)
       || /双败|雙敗|败者|敗者|胜者组|勝者組|败部|小组|小組/.test(r.round_name || '')
       || (r.matches || []).some(m => m.draw_stage || /^GRP-/.test(m.bracket_code || '')))
       || /三人争夺|三人爭奪|首轮败者|首輪敗者/.test((data.edition?.finals_type || '') + (data.edition?.notes || ''))
