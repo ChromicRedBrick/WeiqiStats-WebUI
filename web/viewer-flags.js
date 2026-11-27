@@ -6,6 +6,14 @@
     MAS:'马来西亚', NED:'荷兰', POL:'波兰', ROM:'罗马尼亚', RUS:'俄罗斯', SGP:'新加坡',
     SVK:'斯洛伐克', THA:'泰国', TPE:'中华台北', UKR:'乌克兰', USA:'美国', VNM:'越南'
   };
+  const textCountries = {
+    AUS:'澳大利亚', AUT:'奥地利', AZE:'阿塞拜疆', BEL:'比利时', BIH:'波黑', BLR:'白俄罗斯',
+    BRN:'文莱', BUL:'保加利亚', CHI:'智利', CRC:'哥斯达黎加', CRO:'克罗地亚', DEN:'丹麦',
+    ECU:'厄瓜多尔', ESP:'西班牙', FIN:'芬兰', HUN:'匈牙利', IND:'印度', IRL:'爱尔兰',
+    ITA:'意大利', LTU:'立陶宛', LUX:'卢森堡', MAC:'中国澳门', MEX:'墨西哥', MNG:'蒙古',
+    NOR:'挪威', NZL:'新西兰', POR:'葡萄牙', PRK:'朝鲜', RSA:'南非', SLO:'斯洛文尼亚',
+    SRB:'塞尔维亚', SUI:'瑞士', SWE:'瑞典', VEN:'委内瑞拉'
+  };
   const aliases = {
     AR:'ARG', BR:'BRA', CA:'CAN', CN:'CHN', CZ:'CZE', FR:'FRA', GB:'GBR', UK:'GBR',
     DE:'GER', DEU:'GER', HK:'HKG', ID:'INA', IDN:'INA', IL:'ISR', JP:'JPN', KR:'KOR',
@@ -28,6 +36,7 @@
     const code = normalize(value), name = countries[code];
     if (name) return {code, name, file:`assets/flags/${code}.svg`,
       title: code === 'TPE' ? '中华台北' : name};
+    if (textCountries[code]) return {code, name:textCountries[code], title:textCountries[code]};
     if (code === 'EUR') return {code, name:'欧洲', title:'欧洲'};
     return {code:code || 'UNK', name:code && code !== 'UNK' ? code : '—', title:'地区未知'};
   }

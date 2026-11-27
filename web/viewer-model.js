@@ -384,7 +384,7 @@
     const name = finalNameVariants(String(round.round_name || '')
       .replace(LEAGUE_STAGE_PREFIX, '')
       .replace(/^(?:本戦)?決勝トーナメント[｜|]/, ''));
-    return /决赛|決賽|決勝|挑战赛|挑戦手合|挑战\s*\d+\s*番棋|三番战|五番战|七番战/.test(name) && !/半|準|季|三四|小组|循环|循環|胜者|败者|勝者|敗者|胜部|败部|勝部|敗部|挑战者|挑戰者|挑戦者/.test(name);
+    return /决赛|決賽|決勝|(?:^|[｜|])决胜(?:战|赛|局)?$|挑战赛|挑戦手合|挑战\s*\d+\s*番棋|三番战|五番战|七番战/.test(name) && !/半|準|季|三四|小组|循环|循環|胜者|败者|勝者|敗者|胜部|败部|勝部|敗部|挑战者|挑戰者|挑戦者/.test(name);
   }
   function combineFinalSeriesRounds(rounds) {
     const groups = new Map();
@@ -1091,7 +1091,14 @@
     for (let i = 0; i < rawRounds.length - 1; i++) {
       const nextMap = stageMaps[i + 1];
       for (const match of (rawRounds[i].matches || [])) {
-        if (!match?.id || !match.next_match_id) return null;
+        if (!match?.id) return null;
+        if (!match.next_match_id) {
+          // A no-result game (for example a quadruple-ko replay) does not
+          // advance anyone. It remains visible in its source round, but it
+          // must not suppress the otherwise complete group tree.
+          if (!match.winner?.id && !match.winner_id && isNoResult(match)) continue;
+          return null;
+        }
         const target = nextMap.get(match.next_match_id);
         if (!target) return null;
         const winId = match.winner?.id || match.winner_id || '';
@@ -1497,6 +1504,7 @@
     const excluded = isTeamCompetition(data) || isMixedEliminationDraw(data) || rounds.some(r => isLeagueRound(r)
       || /双败|雙敗|败者|敗者|败部|小组|小組/.test(r.round_name || '')
       || r.matches.some(m => m.draw_stage || /^GRP-/.test(m.bracket_code || '')))
+      || (rounds.some(r => /一次战/.test(r.round_name || '')) && rounds.some(r => /二次战/.test(r.round_name || '')))
       || /三人争夺|三人爭奪|首轮败者|首輪敗者/.test((data.edition?.finals_type || '') + (data.edition?.notes || ''))
       || ['tianfu', 'cjk_ryusei', 'international_ryusei', 'world_meijin'].includes(data.tournament?.id);
     if (excluded || rounds.length < 2) return {...view, orphanRounds: []};
@@ -1530,6 +1538,10 @@
     const populatedRounds = rounds.filter(r => r.matches.length);
     let terminals = populatedRounds.filter(isFinalRound);
     if (!terminals.length) terminals = populatedRounds.filter(r => !isVagueRound(r)).slice(-1);
+    // A drawn game cannot advance a player, but its branch is still part of the
+    // played draw. Anchor no-result games as terminals so their recorded
+    // preliminary/main path is not mistaken for an orphaned round.
+    terminals = [...terminals, ...populatedRounds.filter(r => r.matches.some(isNoResult))];
     if (!terminals.length) return {...view, orphanRounds: []};
     terminals = [...terminals, ...rounds.filter(r => /排名|順位|五六名|七八名|\d+[—\-~～至、]\d+名|第[五六七八九十\d]+名/.test(r.round_name || ''))];
     const kept = new Set(), queue = terminals.flatMap(r => r.matches.map(m => byId.get(m.id)?.id)).filter(Boolean);
