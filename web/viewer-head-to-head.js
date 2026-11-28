@@ -933,15 +933,6 @@
       readUrl();
       load();
     });
-    if (window.GoViewerTheme) {
-      window.GoViewerTheme.init({toggleSelector: '#h2hTheme', buttonsRoot: false});
-    } else {
-      $('h2hTheme').addEventListener('click', () => {
-        const theme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
-        document.body.dataset.theme = theme;
-        try { localStorage.setItem('go_viewer_theme_v1', theme); } catch (_) { }
-      });
-    }
     document.addEventListener('click', event => {
       if (!event.target.closest('.h2h-player')) {
         for (const side of ['a', 'b']) {

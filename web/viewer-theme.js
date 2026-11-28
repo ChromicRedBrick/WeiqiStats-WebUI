@@ -177,3 +177,316 @@
     init,
   };
 })();
+
+/* 界面样式状态模块：统一管理 modern（现代）/ traditional（传统）偏好与跨页同步。 */
+(function () {
+  'use strict';
+
+  const STYLE_KEY = 'go_viewer_ui_style_v1';
+  const VALID = ['modern', 'traditional'];
+  let currentStyle = 'modern';
+  let currentRoot = null;
+  let listenersBound = false;
+
+  function normalize(value, fallback) {
+    if (VALID.includes(value)) return value;
+    return VALID.includes(fallback) ? fallback : 'modern';
+  }
+
+  function getStoredStyle() {
+    try {
+      const stored = localStorage.getItem(STYLE_KEY) || '';
+      return VALID.includes(stored) ? stored : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function getUrlStyle() {
+    try {
+      const value = new URLSearchParams(window.location.search).get('style') || '';
+      return VALID.includes(value) ? value : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function get(options) {
+    const opts = options || {};
+    if (!opts.ignoreUrl) {
+      const fromUrl = getUrlStyle();
+      if (fromUrl) return fromUrl;
+    }
+    const stored = getStoredStyle();
+    if (stored) return stored;
+    return normalize(opts.fallback, 'modern');
+  }
+
+  function syncButtons(root) {
+    const target = root || currentRoot || document;
+    if (!target || !target.querySelectorAll) return;
+    target.querySelectorAll('[data-ui-style-option]').forEach(button => {
+      const active = button.dataset.uiStyleOption === currentStyle;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function syncUrlParam(style) {
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('style')) return;
+      url.searchParams.set('style', style);
+      if (url.search !== window.location.search) {
+        window.history.replaceState(window.history.state, '', url);
+      }
+    } catch (_) {}
+  }
+
+  function apply(style, options) {
+    const opts = options || {};
+    const next = normalize(style, opts.fallback);
+    currentStyle = next;
+    if (document.documentElement) {
+      document.documentElement.dataset.uiStyle = next;
+    }
+    if (document.body) {
+      document.body.dataset.uiStyle = next;
+    }
+    if (opts.persist) {
+      try {
+        localStorage.setItem(STYLE_KEY, next);
+      } catch (_) {}
+    }
+    if (opts.syncUrl) {
+      syncUrlParam(next);
+    }
+    syncButtons(opts.buttonsRoot);
+    try {
+      window.dispatchEvent(new CustomEvent('go:ui-style-changed', {detail: {style: next}}));
+    } catch (_) {}
+    return next;
+  }
+
+  function set(style, options) {
+    return apply(style, Object.assign({}, options || {}, {persist: true, syncUrl: true}));
+  }
+
+  function bindButtons(root) {
+    const target = root || document;
+    currentRoot = target;
+    if (!target || !target.querySelectorAll) return;
+    target.querySelectorAll('[data-ui-style-option]').forEach(button => {
+      button.onclick = () => set(button.dataset.uiStyleOption, {buttonsRoot: target});
+    });
+    syncButtons(target);
+  }
+
+  function ensureListeners() {
+    if (listenersBound) return;
+    listenersBound = true;
+    window.addEventListener('storage', event => {
+      if (event.key !== STYLE_KEY || !VALID.includes(event.newValue)) return;
+      apply(event.newValue, {persist: false});
+    });
+  }
+
+  function init(options) {
+    const opts = options || {};
+    ensureListeners();
+    const style = get(opts);
+    if (opts.buttonsRoot !== false) {
+      currentRoot = opts.buttonsRoot || document;
+    }
+    const result = apply(style, {persist: false, buttonsRoot: currentRoot, fallback: opts.fallback});
+    if (opts.buttonsRoot !== false) bindButtons(currentRoot);
+    return result;
+  }
+
+  window.GoViewerUiStyle = {
+    STYLE_KEY,
+    getStoredStyle,
+    getUrlStyle,
+    get,
+    apply,
+    set,
+    bindButtons,
+    init,
+  };
+})();
+
+/* 横向宽度状态模块：通过滑块调节内容区最大宽度（60%~100%），空值随当前界面样式默认。 */
+(function () {
+  'use strict';
+
+  const WIDTH_KEY = 'go_viewer_ui_width_v1';
+  const MIN_WIDTH = 60;
+  const MAX_WIDTH = 100;
+  let currentWidth = null;
+  let currentRoot = null;
+  let listenersBound = false;
+
+  function normalize(value) {
+    if (value === null || value === undefined || value === '' || value === 'auto' || value === 'default') {
+      return null;
+    }
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n));
+  }
+
+  function defaultKnobValue() {
+    const style = document.documentElement?.dataset?.uiStyle || document.body?.dataset?.uiStyle || 'modern';
+    return style === 'traditional' ? 100 : 75;
+  }
+
+  function getStoredWidth() {
+    try {
+      return normalize(localStorage.getItem(WIDTH_KEY));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getUrlWidth() {
+    try {
+      const raw = new URLSearchParams(window.location.search).get('width');
+      if (raw === null) return undefined;
+      if (raw === 'auto' || raw === 'default') return null;
+      const n = normalize(raw);
+      return n === null ? undefined : n;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
+  function get(options) {
+    const opts = options || {};
+    if (!opts.ignoreUrl) {
+      const fromUrl = getUrlWidth();
+      if (fromUrl !== undefined) return fromUrl;
+    }
+    return getStoredWidth();
+  }
+
+  function syncControls(root) {
+    const target = root || currentRoot || document;
+    if (!target || !target.querySelectorAll) return;
+    const isCustom = currentWidth !== null;
+    const knobVal = isCustom ? currentWidth : defaultKnobValue();
+    target.querySelectorAll('[data-ui-width-range]').forEach(input => {
+      input.value = String(knobVal);
+      input.setAttribute('aria-valuetext', isCustom ? `${currentWidth}%` : '默认');
+    });
+    target.querySelectorAll('[data-ui-width-value]').forEach(el => {
+      el.textContent = isCustom ? `${currentWidth}%` : '默认';
+    });
+    target.querySelectorAll('[data-ui-width-reset]').forEach(button => {
+      button.disabled = !isCustom;
+    });
+  }
+
+  function syncUrlParam(width) {
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('width')) return;
+      url.searchParams.set('width', width === null ? 'auto' : String(width));
+      if (url.search !== window.location.search) {
+        window.history.replaceState(window.history.state, '', url);
+      }
+    } catch (_) {}
+  }
+
+  function apply(width, options) {
+    const opts = options || {};
+    const next = normalize(width);
+    currentWidth = next;
+    const root = document.documentElement;
+    if (root) {
+      if (next !== null) {
+        root.dataset.uiWidth = String(next);
+        root.style.setProperty('--ui-content-width', `${next}%`);
+        root.style.setProperty('--ui-content-vw', `${next}vw`);
+      } else {
+        delete root.dataset.uiWidth;
+        root.style.removeProperty('--ui-content-width');
+        root.style.removeProperty('--ui-content-vw');
+      }
+    }
+    if (opts.persist) {
+      try {
+        if (next !== null) localStorage.setItem(WIDTH_KEY, String(next));
+        else localStorage.removeItem(WIDTH_KEY);
+      } catch (_) {}
+    }
+    if (opts.syncUrl) {
+      syncUrlParam(next);
+    }
+    syncControls(opts.controlsRoot);
+    try {
+      window.dispatchEvent(new CustomEvent('go:ui-width-changed', {detail: {width: next}}));
+    } catch (_) {}
+    return next;
+  }
+
+  function set(width, options) {
+    return apply(width, Object.assign({}, options || {}, {persist: true, syncUrl: true}));
+  }
+
+  function reset(options) {
+    return apply(null, Object.assign({}, options || {}, {persist: true, syncUrl: true}));
+  }
+
+  function bindControls(root) {
+    const target = root || document;
+    currentRoot = target;
+    if (!target || !target.querySelectorAll) return;
+    target.querySelectorAll('[data-ui-width-range]').forEach(input => {
+      const handle = () => set(input.value, {controlsRoot: target});
+      input.oninput = handle;
+      input.onchange = handle;
+    });
+    target.querySelectorAll('[data-ui-width-reset]').forEach(button => {
+      button.onclick = () => reset({controlsRoot: target});
+    });
+    syncControls(target);
+  }
+
+  function ensureListeners() {
+    if (listenersBound) return;
+    listenersBound = true;
+    window.addEventListener('storage', event => {
+      if (event.key !== WIDTH_KEY) return;
+      apply(event.newValue, {persist: false});
+    });
+    window.addEventListener('go:ui-style-changed', () => {
+      if (currentWidth === null) syncControls();
+    });
+  }
+
+  function init(options) {
+    const opts = options || {};
+    ensureListeners();
+    const width = get(opts);
+    if (opts.controlsRoot !== false) {
+      currentRoot = opts.controlsRoot || document;
+    }
+    const result = apply(width, {persist: false, controlsRoot: currentRoot});
+    if (opts.controlsRoot !== false) bindControls(currentRoot);
+    return result;
+  }
+
+  window.GoViewerUiWidth = {
+    WIDTH_KEY,
+    MIN_WIDTH,
+    MAX_WIDTH,
+    getStoredWidth,
+    getUrlWidth,
+    get,
+    apply,
+    set,
+    reset,
+    bindControls,
+    init,
+  };
+})();

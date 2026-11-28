@@ -9579,3 +9579,161 @@ body[data-view-mode="wiki"] .drop-ref-badge {
   top: 0;
   left: 0.4rem;
 }
+
+/* 「界面设置」统一下拉组件（现代与传统样式共用） */
+.ui-settings-menu {
+  position: relative;
+}
+
+.ui-settings-trigger {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  user-select: none;
+}
+
+.ui-settings-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.ui-settings-trigger::after {
+  content: "";
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  opacity: 0.72;
+  transition: transform 140ms ease;
+}
+
+.ui-settings-menu[open] .ui-settings-trigger::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+.ui-settings-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 60;
+  min-width: 18.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-elevated, var(--shadow));
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.ui-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ui-settings-label {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ui-settings-group {
+  flex: 0 0 auto;
+}
+
+.ui-settings-group .view-toggle-btn {
+  padding: 0.25rem 0.55rem;
+  min-height: 1.6rem;
+  white-space: nowrap;
+}
+
+.ui-settings-slider-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.ui-settings-range {
+  width: 7.5rem;
+  min-width: 5.5rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ui-settings-value {
+  min-width: 2.6rem;
+  text-align: right;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ui-settings-reset {
+  padding: 0.16rem 0.45rem;
+  min-height: 1.5rem;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+@media (min-width: 761px) {
+  html[data-ui-width] body :is(.annual-main, .h2h-main, .player-page-main, .ratings-page-main) {
+    max-width: var(--ui-content-width);
+  }
+
+  html[data-ui-width] body:not(.export-capture) :is(.prelim-view, .table-view) {
+    max-width: var(--ui-content-width);
+    width: 100%;
+    margin-inline: auto;
+  }
+
+  html[data-ui-width] body:not(.export-capture)[data-view-mode] :is(.round-col.league-results, .round-col.team-results.nongshim-results),
+  html[data-ui-width] body:not(.export-capture) .league-knockout .round-col.finals-wide {
+    width: min(var(--ui-content-vw), calc(100vw - var(--sidebar-offset, var(--sidebar-width)) - 5rem));
+  }
+}
+
+@media (max-width: 760px) {
+  .ui-settings-menu {
+    position: static;
+  }
+
+  .ui-settings-panel {
+    left: 0.75rem;
+    right: 0.75rem;
+    min-width: 0;
+  }
+
+  .ui-settings-row {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .ui-settings-group {
+    width: 100%;
+  }
+
+  .ui-settings-group .view-toggle-btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  .ui-settings-slider-wrap {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .ui-settings-range {
+    flex: 1 1 auto;
+    width: auto;
+  }
+}

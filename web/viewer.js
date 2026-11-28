@@ -4063,6 +4063,8 @@ window.showPlayer = function(playerNameOrId) {
         // Window resize & dynamic layout/numbering redraw connectors
         window.addEventListener('resize', requestDraw);
         window.addEventListener('go:numbering-decorated', requestDraw);
+        window.addEventListener('go:ui-style-changed', requestDraw);
+        window.addEventListener('go:ui-width-changed', requestDraw);
         window.addEventListener('go:spoiler-changed', () => {
           const data = allData[currentEditionId];
           if (!data) return;

@@ -320,12 +320,25 @@
     let items = [], active = -1, lastFocus = null;
     let remoteQuery = '', remoteMatches = [], remotePlayers = [], remoteEditions = [], remoteTimer = 0, remoteToken = 0;
     const standalone = !document.getElementById('mainView');
+    const uiStylePref = () => document.body.dataset.uiStyle || 'modern';
     const themeCommands = [
       ['light', '浅色外观', 'sun', '浅色 主题 外观 light'],
       ['dark', '深色外观', 'moon', '深色 主题 外观 dark'],
       ['auto', '跟随系统外观', 'monitor', '跟随 系统 自动 主题 auto'],
     ].map(([key, label, icon, keywords]) => ({section: 'view', label, icon, keywords,
       run: () => window.GoViewerTheme?.setPreference(key)}));
+    const uiStyleCommands = [
+      ['modern', '界面样式：现代', 'table', '界面 样式 现代 style modern'],
+      ['traditional', '界面样式：传统', 'table', '界面 样式 传统 高密度 style traditional'],
+    ].map(([key, label, icon, keywords]) => ({
+      section: 'view',
+      id: `ui-style-${key}`,
+      label,
+      meta: uiStylePref() === key ? '当前' : '',
+      icon,
+      keywords,
+      run: () => window.GoViewerUiStyle?.set(key),
+    }));
 
     const tableOpen = () => !document.getElementById('tableView')?.hidden;
     const editMode = () => document.body.classList.contains('edit-mode');
@@ -370,6 +383,7 @@
         {section: 'nav', label: '对手交锋', icon: 'person', keywords: '对手 交锋', run: () => { location.href = 'head-to-head.html'; }},
         {section: 'nav', label: '等级分', icon: 'trophy', keywords: '等级分 榜单', run: () => { location.href = 'ratings.html'; }},
         ...themeCommands,
+        ...uiStyleCommands,
         {section: 'view', id: 'spoiler-toggle', label: document.body.dataset.spoiler === 'hidden' ? '关闭防剧透模式（显示赛果）' : '开启防剧透模式（隐藏赛果）', meta: '可点击单局单独揭示', icon: 'eye', keywords: '防剧透 剧透 隐藏 赛果 spoiler', run: () => window.GoViewerSpoiler?.toggle?.()},
       ];
       const definitions = [
@@ -387,9 +401,10 @@
         ...(!document.getElementById('orientationToggleGroup')?.hidden ? [{section: 'view', id: 'orientation', label: isVertical() ? '切换为横版对阵' : '切换为竖版对阵', meta: `当前：${isVertical() ? '竖版（自上而下）' : '横版（自左向右）'}`, icon: 'bracket', keywords: '横版 竖版 方向 orientation horizontal vertical', run: () => click(isVertical() ? 'btnOrientHorizontal' : 'btnOrientVertical')}] : []),
         {section: 'view', id: 'export', label: '导出对阵图', meta: '导出 PNG 或 SVG', icon: 'download', keywords: '导出 图片 svg png export', run: () => click('btnExportBracket')},
         {section: 'view', id: 'sidebar-toggle', label: window.GoViewerSidebar?.isCollapsed?.() ? '展开赛事目录' : '收起赛事目录', meta: `${isMac ? '⌘B' : 'Ctrl+B'} · 切换左侧列表显示`, icon: 'sidebar', keywords: '侧栏 目录 折叠 收起 展开 sidebar collapse', run: () => window.GoViewerSidebar?.toggle?.()},
-        {section: 'view', id: 'theme-light', label: '切换为浅色外观', meta: themePref() === 'light' ? '当前' : '暖灰浅色', icon: 'sun', keywords: '浅色 主题 外观 theme light', run: () => click('btnThemeLight')},
-        {section: 'view', id: 'theme-dark', label: '切换为深色外观', meta: themePref() === 'dark' ? '当前' : '分层炭灰', icon: 'moon', keywords: '深色 主题 外观 theme dark', run: () => click('btnThemeDark')},
-        {section: 'view', id: 'theme-auto', label: '跟随系统外观', meta: themePref() === 'auto' ? '当前' : '随系统明暗自动切换', icon: 'monitor', keywords: '跟随 系统 自动 主题 theme auto', run: () => click('btnThemeAuto')},
+        {section: 'view', id: 'theme-light', label: '切换为浅色外观', meta: themePref() === 'light' ? '当前' : '暖灰浅色', icon: 'sun', keywords: '浅色 主题 外观 theme light', run: () => window.GoViewerTheme?.setPreference('light')},
+        {section: 'view', id: 'theme-dark', label: '切换为深色外观', meta: themePref() === 'dark' ? '当前' : '分层炭灰', icon: 'moon', keywords: '深色 主题 外观 theme dark', run: () => window.GoViewerTheme?.setPreference('dark')},
+        {section: 'view', id: 'theme-auto', label: '跟随系统外观', meta: themePref() === 'auto' ? '当前' : '随系统明暗自动切换', icon: 'monitor', keywords: '跟随 系统 自动 主题 theme auto', run: () => window.GoViewerTheme?.setPreference('auto')},
+        ...uiStyleCommands,
         {section: 'view', id: 'spoiler-toggle', label: document.body.dataset.spoiler === 'hidden' ? '关闭防剧透模式（显示赛果）' : '开启防剧透模式（隐藏赛果）', meta: '可点击单局单独揭示', icon: 'eye', keywords: '防剧透 剧透 隐藏 赛果 spoiler', run: () => window.GoViewerSpoiler?.toggle?.()},
         {section: 'view', id: 'edit-mode', label: editMode() ? '关闭编辑模式' : '开启编辑模式', meta: editMode() ? '退出编辑' : '允许修改资料与棋谱关联', icon: 'edit', keywords: '编辑 模式 edit', run: () => click('btnEditMode')}
       ];
@@ -704,9 +719,9 @@
     window.GoViewerCommand = {open, close: () => close(true), isOpen: () => dialog.open};
   }
 
-  // 在各子页脚本绑定主题按钮前挂载顶栏。
+  // 在各子页脚本初始化前挂载统一顶栏与「界面设置」下拉。
   function mountStandaloneHeader() {
-    const {standalonePage: active, themeToggleId: themeId} = document.body.dataset;
+    const {standalonePage: active} = document.body.dataset;
     const navItems = [
       {key: 'tournaments', label: '赛事资料', href: 'index.html'},
       {key: 'annual', label: '年度对局', href: 'annual.html'},
@@ -718,9 +733,35 @@
       const isCurrent = item.key === active;
       return `<a class="nav-link${isCurrent ? ' is-active' : ''}" href="${item.href}"${isCurrent ? ' aria-current="page"' : ''}>${item.label}</a>`;
     }).join('');
-    const themeBtnHtml = themeId
-      ? `<button type="button" class="btn btn-sm standalone-theme-btn" id="${E(themeId)}">切换外观</button>`
-      : '';
+    const settingsMenuHtml = `
+      <details class="ui-settings-menu" id="uiSettingsMenu">
+        <summary class="btn btn-sm ui-settings-trigger" id="btnUiSettings" aria-haspopup="true">界面设置</summary>
+        <div class="ui-settings-panel" role="group" aria-label="界面设置">
+          <div class="ui-settings-row">
+            <span class="ui-settings-label">外观主题</span>
+            <div class="view-toggle-group ui-settings-group" role="group" aria-label="外观主题">
+              <button class="view-toggle-btn" id="btnThemeLight" data-theme-option="light" type="button" aria-pressed="false" title="浅色外观">浅色</button>
+              <button class="view-toggle-btn" id="btnThemeDark" data-theme-option="dark" type="button" aria-pressed="false" title="深色外观">深色</button>
+              <button class="view-toggle-btn" id="btnThemeAuto" data-theme-option="auto" type="button" aria-pressed="false" title="跟随系统外观">跟随系统</button>
+            </div>
+          </div>
+          <div class="ui-settings-row">
+            <span class="ui-settings-label">界面样式</span>
+            <div class="view-toggle-group ui-settings-group" role="group" aria-label="界面样式">
+              <button class="view-toggle-btn" id="btnUiStyleModern" data-ui-style-option="modern" type="button" aria-pressed="false" title="现代界面样式">现代</button>
+              <button class="view-toggle-btn" id="btnUiStyleTraditional" data-ui-style-option="traditional" type="button" aria-pressed="false" title="传统界面样式">传统</button>
+            </div>
+          </div>
+          <div class="ui-settings-row ui-settings-row--width">
+            <label class="ui-settings-label" for="rngUiWidth">横向宽度</label>
+            <div class="ui-settings-slider-wrap">
+              <input class="ui-settings-range" id="rngUiWidth" data-ui-width-range type="range" min="60" max="100" step="1" value="75" aria-label="横向宽度">
+              <span class="ui-settings-value" id="valUiWidth" data-ui-width-value>默认</span>
+              <button class="btn btn-sm ui-settings-reset" id="btnUiWidthReset" data-ui-width-reset type="button" title="恢复默认宽度" disabled>重置</button>
+            </div>
+          </div>
+        </div>
+      </details>`;
     const header = document.createElement('header');
     header.className = 'app-header app-header--standalone';
     header.innerHTML = `
@@ -736,9 +777,31 @@
           <kbd class="command-trigger-kbd">${shortcutLabel}</kbd>
         </button>
         <button type="button" class="btn btn-sm spoiler-toggle-btn" id="btnSpoilerToggle" aria-pressed="false" title="开启后隐藏胜负赛果，点击单局可单独揭示">防剧透</button>
-        ${themeBtnHtml}
+        ${settingsMenuHtml}
       </div>`;
     document.body.insertBefore(header, document.body.firstChild);
+  }
+
+  function initUiSettingsMenu() {
+    const menu = document.getElementById('uiSettingsMenu');
+    if (document.body?.dataset.standalonePage) {
+      window.GoViewerTheme?.init?.({buttonsRoot: menu || document});
+    }
+    window.GoViewerUiStyle?.init?.({buttonsRoot: menu || document});
+    window.GoViewerUiWidth?.init?.({controlsRoot: menu || document});
+    if (!menu || menu.dataset.settingsBound === '1') return;
+    menu.dataset.settingsBound = '1';
+    const summary = menu.querySelector('summary');
+    document.addEventListener('click', event => {
+      if (menu.open && !menu.contains(event.target)) {
+        menu.open = false;
+      }
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !menu.open) return;
+      menu.open = false;
+      if (summary) summary.focus();
+    });
   }
 
   if (document.body?.dataset.standalonePage) {
@@ -967,6 +1030,7 @@
   }
 
   function init() {
+    initUiSettingsMenu();
     initSidebar();
     initSpoiler();
     initCommands();

@@ -35,9 +35,36 @@
     if (qOrient === 'horizontal' || qOrient === 'vertical') orientation = qOrient;
   }
 
+  var uiStyle = 'modern';
+  try {
+    var storedStyle = localStorage.getItem('go_viewer_ui_style_v1');
+    if (storedStyle === 'modern' || storedStyle === 'traditional') uiStyle = storedStyle;
+  } catch (_) {}
+  var qStyle = params.get('style');
+  if (qStyle === 'modern' || qStyle === 'traditional') uiStyle = qStyle;
+
+  var uiWidth = '';
+  try {
+    var storedWidth = parseInt(localStorage.getItem('go_viewer_ui_width_v1'), 10);
+    if (isFinite(storedWidth) && storedWidth >= 60 && storedWidth <= 100) uiWidth = String(storedWidth);
+  } catch (_) {}
+  var qWidth = params.get('width');
+  if (qWidth === 'auto' || qWidth === 'default') {
+    uiWidth = '';
+  } else if (qWidth !== null) {
+    var parsedWidth = parseInt(qWidth, 10);
+    if (isFinite(parsedWidth) && parsedWidth >= 60 && parsedWidth <= 100) uiWidth = String(parsedWidth);
+  }
+
   var resolved = pref === 'dark' || (pref === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
     ? 'dark' : 'light';
   document.documentElement.dataset.themePref = pref;
+  document.documentElement.dataset.uiStyle = uiStyle;
+  if (uiWidth) {
+    document.documentElement.dataset.uiWidth = uiWidth;
+    document.documentElement.style.setProperty('--ui-content-width', uiWidth + '%');
+    document.documentElement.style.setProperty('--ui-content-vw', uiWidth + 'vw');
+  }
   var spoiler = 'visible';
   try {
     var qSpoiler = params.get('spoiler');
@@ -49,6 +76,7 @@
   if (document.body) {
     document.body.dataset.themePref = pref;
     document.body.dataset.theme = resolved;
+    document.body.dataset.uiStyle = uiStyle;
     document.body.style.colorScheme = resolved;
     document.body.dataset.spoiler = spoiler;
     if (isIndex) {

@@ -2,15 +2,6 @@
   'use strict';
   const M = window.GoViewerModel, E = M.escape;
   const root = document.getElementById('playerProfile');
-  if (window.GoViewerTheme) {
-    window.GoViewerTheme.init({toggleSelector: '#playerTheme', buttonsRoot: false});
-  } else {
-    document.getElementById('playerTheme').onclick = () => {
-      const theme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
-      document.body.dataset.theme = theme;
-      try { localStorage.setItem('go_viewer_theme_v1', theme); } catch (_) {}
-    };
-  }
   if (location.protocol === 'file:') {
     root.innerHTML = '<h1>无法读取页面资料</h1><p>请通过本地查看器服务访问。</p>';
     return;

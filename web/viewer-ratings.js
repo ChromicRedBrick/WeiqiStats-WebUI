@@ -2982,7 +2982,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   if (isStandalonePage()) {
-    window.GoViewerTheme?.init?.({ toggleSelector: '#ratingsTheme' });
     const state = readRatingsUrlState();
     await initStandaloneEditSupport(state.edit);
 
