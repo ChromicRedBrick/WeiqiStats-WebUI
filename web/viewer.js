@@ -101,12 +101,45 @@
         const color=!(m.isSeries || m.series_score) && p.id && (m.black_player_id===p.id?'black':m.white_player_id===p.id?'white':'');
         return color ? `<${tag} class="player-stone${tag==='td'?' wiki-stone-cell':''}" title="执${color==='black'?'黑':'白'}" aria-label="执${color==='black'?'黑':'白'}"><i class="stone-icon stone-${color}"></i></${tag}>` : '';
       }
+      let rosterScope = 'main';
       function renderRoster() {
-        const data=allData[currentEditionId],players=M.editionPlayers(data),query=document.getElementById('rosterSearch').value;
+        const data=allData[currentEditionId];
+        if(!data) return;
+        const mainPlayers=M.mainStagePlayers(data);
+        const allPlayers=M.editionPlayers(data).filter(p=>!M.isGroupedPlayerLabel(p));
+        const query=document.getElementById('rosterSearch').value;
+        const mainTab=document.getElementById('rosterTabMain');
+        const allTab=document.getElementById('rosterTabAll');
+        if(mainTab){
+          mainTab.textContent=`本赛（${mainPlayers.length}）`;
+          mainTab.setAttribute('aria-selected', String(rosterScope==='main'));
+          mainTab.classList.toggle('is-active', rosterScope==='main');
+        }
+        if(allTab){
+          allTab.textContent=`全部（含预选）（${allPlayers.length}）`;
+          allTab.setAttribute('aria-selected', String(rosterScope==='all'));
+          allTab.classList.toggle('is-active', rosterScope==='all');
+        }
         document.getElementById('rosterTitle').textContent=`${data.tournament.short_name} ${M.editionLabel(data.edition)} · 参赛名单`;
-        document.getElementById('rosterSummary').textContent=`已登记${players.length}人 · 本赛规模${data.edition.bracket_size || '待核'}人${players.length===data.edition.bracket_size?' · 名单齐全':' · 按现有对局汇总'}`;
-        const shown=players.filter(p=>M.matchesPlayerQuery(p,query,playerAliases));
-        document.getElementById('rosterPlayers').innerHTML=shown.map(p=>`<button type="button" class="roster-player" data-roster-player="${esc(p.id)}">${getFlagSvg(p.nationality)}<span>${esc(p.name_zh)}${p.name_native && p.name_native!==p.name_zh?`<small>${esc(p.name_native)}</small>`:''}</span></button>`).join('') || '<p>没有找到匹配的参赛棋手。</p>';
+        if(rosterScope==='all'){
+          document.getElementById('rosterSummary').textContent=`全部（含预选）共 ${allPlayers.length} 人${mainPlayers.length?` · 其中本赛 ${mainPlayers.length} 人`:''}`;
+        }else if(M.isTeamCompetition(data)){
+          const teams=data.team_competition?.teams||[];
+          document.getElementById('rosterSummary').textContent=`本赛 ${mainPlayers.length} 人${teams.length?`（${teams.length} 队）`:''}${allPlayers.length>mainPlayers.length?` · 含预选共 ${allPlayers.length} 人`:''}`;
+        }else{
+          const size=data.edition?.bracket_size;
+          document.getElementById('rosterSummary').textContent=`本赛 ${mainPlayers.length} 人${size?` · 本赛规模 ${size} 人${mainPlayers.length===size?' · 名单齐全':''}`:''}${allPlayers.length>mainPlayers.length?` · 含预选共 ${allPlayers.length} 人`:''}`;
+        }
+        const teamByPlayer=new Map();
+        for(const t of data.team_competition?.teams||[]){
+          for(const p of t.players||[]) if(p?.id && !teamByPlayer.has(p.id)) teamByPlayer.set(p.id, t.name_zh);
+        }
+        const activePlayers=rosterScope==='all'?allPlayers:mainPlayers;
+        const shown=activePlayers.filter(p=>M.matchesPlayerQuery(p,query,playerAliases));
+        document.getElementById('rosterPlayers').innerHTML=shown.map(p=>{
+          const sub=teamByPlayer.get(p.id) || (p.name_native && p.name_native!==p.name_zh ? p.name_native : '');
+          return `<button type="button" class="roster-player" data-roster-player="${esc(p.id)}">${getFlagSvg(p.nationality)}<span>${esc(p.name_zh)}${sub?`<small>${esc(sub)}</small>`:''}</span></button>`;
+        }).join('') || '<p>没有找到匹配的参赛棋手。</p>';
         document.querySelectorAll('[data-roster-player]').forEach(el=>el.onclick=()=>{document.getElementById('rosterDialog').close();window.showPlayer(el.dataset.rosterPlayer);});
       }
 
@@ -776,29 +809,64 @@
         const hasFinalsTarget = !M.isTeamCompetition(data, meta) && Boolean(
           (data.rounds || []).some(r => !M.isPrelimRound(r) && !M.isUnclassifiedRound(r) && isFinalRoundName(r))
         );
-        podiumEl.innerHTML = `
-          <div class="podium-box">
-            <div class="podium-icon">01</div>
-            <div>
-              <div class="podium-label">${M.isWorld(data) ? '世界冠军' : '本届冠军'}</div>
-              <div class="podium-name${data.champion.id ? ' is-clickable' : ''}" onclick="${data.champion.id ? `window.showPlayer('${data.champion.id}')` : ''}">
-                ${meta.champion ? getFlagSvg(meta.champion_nat) : ''}
-                ${esc(meta.champion || (M.editionOngoing(meta) ? '待定' : '—'))}
+        if (window.GoViewerTeam?.hasNongshimTies?.(data) && window.GoViewerTeam?.nongshimModel) {
+          const ns = window.GoViewerTeam.nongshimModel(data);
+          if (!ns.completed) {
+            const statusText = ns.stages.length ? `进行中 · ${ns.stages.at(-1).title}` : (M.editionOngoing(meta) ? '进行中' : '—');
+            podiumEl.innerHTML = `
+              <div class="podium-box podium-box--status">
+                <div class="podium-icon">—</div>
+                <div>
+                  <div class="podium-label">赛事进度</div>
+                  <div class="podium-name">${esc(statusText)}</div>
+                </div>
+              </div>
+            `;
+          } else {
+            const rankTitles = ['冠军', '亚军', '季军'];
+            const boxes = ns.teams.filter(t => t.team.finish_rank >= 1 && t.team.finish_rank <= 3)
+              .sort((a, b) => a.team.finish_rank - b.team.finish_rank);
+            podiumEl.innerHTML = boxes.map(entry => {
+              const rank = entry.team.finish_rank;
+              return `
+                <div class="podium-box">
+                  <div class="podium-icon">0${rank}</div>
+                  <div>
+                    <div class="podium-label">${rankTitles[rank - 1]}（${entry.wins}胜${entry.losses}负）</div>
+                    <div class="podium-name">
+                      ${entry.team.region ? getFlagSvg(entry.team.region) : ''}
+                      ${esc(entry.team.name_zh)}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('');
+          }
+        } else {
+          podiumEl.innerHTML = `
+            <div class="podium-box">
+              <div class="podium-icon">01</div>
+              <div>
+                <div class="podium-label">${M.isWorld(data) ? '世界冠军' : '本届冠军'}</div>
+                <div class="podium-name${data.champion.id ? ' is-clickable' : ''}" onclick="${data.champion.id ? `window.showPlayer('${data.champion.id}')` : ''}">
+                  ${meta.champion ? getFlagSvg(meta.champion_nat) : ''}
+                  ${esc(meta.champion || (M.editionOngoing(meta) ? '进行中' : '—'))}
+                </div>
               </div>
             </div>
-          </div>
-          <div class="podium-box">
-            <div class="podium-icon">02</div>
-            <div>
-              <div class="podium-label">亚军${meta.finals_score ? ' (' + esc(meta.finals_score) + ')' : ''}</div>
-              <div class="podium-name${data.runner_up.id ? ' is-clickable' : ''}" onclick="${data.runner_up.id ? `window.showPlayer('${data.runner_up.id}')` : ''}">
-                ${meta.runner_up ? getFlagSvg(meta.runner_up_nat) : ''}
-                ${esc(meta.runner_up || (M.editionOngoing(meta) ? '待定' : '—'))}
+            <div class="podium-box">
+              <div class="podium-icon">02</div>
+              <div>
+                <div class="podium-label">亚军${meta.finals_score ? ' (' + esc(meta.finals_score) + ')' : ''}</div>
+                <div class="podium-name${data.runner_up.id ? ' is-clickable' : ''}" onclick="${data.runner_up.id ? `window.showPlayer('${data.runner_up.id}')` : ''}">
+                  ${meta.runner_up ? getFlagSvg(meta.runner_up_nat) : ''}
+                  ${esc(meta.runner_up || (M.editionOngoing(meta) ? '进行中' : '—'))}
+                </div>
               </div>
             </div>
-          </div>
-          ${hasFinalsTarget ? '<button class="btn btn-small podium-locate-btn" id="btnLocateFinals" type="button" title="滚动定位至决赛卡片">定位决赛</button>' : ''}
-        `;
+            ${hasFinalsTarget ? '<button class="btn btn-small podium-locate-btn" id="btnLocateFinals" type="button" title="滚动定位至决赛卡片">定位决赛</button>' : ''}
+          `;
+        }
         const locateBtn = document.getElementById('btnLocateFinals');
         if (locateBtn) {
           locateBtn.onclick = () => {
@@ -3717,7 +3785,8 @@ window.showPlayer = function(playerNameOrId) {
         }
 
         // Navigation follows the selected list.
-        document.getElementById('btnEditionRoster').onclick=()=>{document.getElementById('rosterSearch').value='';renderRoster();document.getElementById('rosterDialog').showModal();};
+        document.getElementById('btnEditionRoster').onclick=()=>{rosterScope='main';document.getElementById('rosterSearch').value='';renderRoster();document.getElementById('rosterDialog').showModal();};
+        document.querySelectorAll('[data-roster-scope]').forEach(btn=>btn.onclick=()=>{rosterScope=btn.dataset.rosterScope;renderRoster();});
         document.getElementById('rosterSearch').oninput=renderRoster;
         const rosterCreate=document.getElementById('rosterCreatePlayer');
         if(rosterCreate)rosterCreate.onclick=()=>window.GoViewerEditor?.openCreatePlayer({onCreated:async player=>{
@@ -4184,20 +4253,36 @@ window.showPlayer = function(playerNameOrId) {
       window.getBracketExportContext = function() {
         const data = allData[currentEditionId], meta = indexList.find(e => e.id === currentEditionId);
         if (!data || !meta) return null;
-        let champion = data.team_competition?.champion?.name_zh || data.champion?.name_zh || (M.editionOngoing(meta) ? '待定' : '—');
-        let runner = data.team_competition?.runner_up?.name_zh || data.runner_up?.name_zh || (M.editionOngoing(meta) ? '待定' : '—');
-        let score = data.edition.finals_score || (M.editionOngoing(meta) ? '待定' : '—');
+        const ongoing = M.editionOngoing(meta);
+        let champion = data.team_competition?.champion?.name_zh || data.champion?.name_zh || (ongoing ? '' : '—');
+        let runner = data.team_competition?.runner_up?.name_zh || data.runner_up?.name_zh || (ongoing ? '' : '—');
+        let score = data.edition.finals_score || (ongoing ? '' : '—');
         let scoreLabel = data.team_competition && data.edition.edition_number != null && data.edition.edition_number < 3 ? '团体总局分' : '决赛总比分';
-        if (data.tournament?.id === 'nongshim' && window.GoViewerTeam?.nongshimModel) {
+        let statusText = !champion && ongoing ? '进行中' : '';
+        if (window.GoViewerTeam?.hasNongshimTies?.(data) && window.GoViewerTeam?.nongshimModel) {
           const ns = window.GoViewerTeam.nongshimModel(data);
           const formatTeam = entry => entry ? `${entry.team.name_zh}（${entry.wins}胜${entry.losses}负）` : '';
           const first = ns.teams.find(t => t.team.finish_rank === 1);
           const second = ns.teams.find(t => t.team.finish_rank === 2);
           const third = ns.teams.find(t => t.team.finish_rank === 3);
-          if (first) champion = formatTeam(first);
-          if (second) runner = formatTeam(second);
-          scoreLabel = '季军';
-          score = third ? formatTeam(third) : (M.editionOngoing(meta) ? '待定' : '—');
+          if (!ns.completed) {
+            champion = '';
+            runner = '';
+            score = '';
+            scoreLabel = '';
+            statusText = ns.stages.length ? `进行中 · ${ns.stages.at(-1).title}` : (ongoing ? '进行中' : '');
+          } else {
+            statusText = '';
+            champion = first ? formatTeam(first) : '—';
+            runner = second ? formatTeam(second) : '—';
+            if (ns.teams.length >= 3) {
+              scoreLabel = '季军';
+              score = third ? formatTeam(third) : '—';
+            } else {
+              scoreLabel = '总比分';
+              score = first && second ? `${first.wins}-${second.wins}` : '—';
+            }
+          }
         }
         return {mode: currentViewMode, orientation: currentOrientation, zoom: zoomLevel, year: meta.year, shortName: meta.tournament_short, editionNumber: meta.edition_number,
           title: M.editionTitle(data.edition, meta),
@@ -4205,6 +4290,7 @@ window.showPlayer = function(playerNameOrId) {
           runner,
           score,
           scoreLabel,
+          statusText,
           period: data.edition.start_date
             ? (data.edition.end_date ? `${data.edition.start_date} ～ ${data.edition.end_date}` : data.edition.start_date)
             : String(meta.year || '—'),

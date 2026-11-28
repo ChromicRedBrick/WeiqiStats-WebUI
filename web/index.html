@@ -335,7 +335,7 @@
   </dialog>
   <dialog id="rosterDialog" class="roster-dialog" aria-labelledby="rosterTitle">
     <div class="modal-header"><h3 id="rosterTitle">本届参赛名单</h3><form method="dialog"><button class="close-btn" aria-label="关闭参赛名单">×</button></form></div>
-    <div class="modal-body"><p id="rosterSummary"></p><div class="roster-tools"><input id="rosterSearch" type="search" placeholder="按中文或原文姓名查找" aria-label="查找本届参赛棋手"><button class="btn edit-only" id="rosterCreatePlayer" type="button">新建人物</button></div><div id="rosterPlayers"></div></div>
+    <div class="modal-body"><div class="roster-tabs" id="rosterTabs" role="tablist" aria-label="参赛名单范围"><button type="button" class="btn roster-tab is-active" id="rosterTabMain" role="tab" data-roster-scope="main" aria-selected="true">本赛</button><button type="button" class="btn roster-tab" id="rosterTabAll" role="tab" data-roster-scope="all" aria-selected="false">全部（含预选）</button></div><p id="rosterSummary"></p><div class="roster-tools"><input id="rosterSearch" type="search" placeholder="按中文或原文姓名查找" aria-label="查找本届参赛棋手"><button class="btn edit-only" id="rosterCreatePlayer" type="button">新建人物</button></div><div id="rosterPlayers"></div></div>
   </dialog>
   <dialog id="historyDialog" class="history-dialog" aria-labelledby="historyTitle">
     <div class="modal-header"><h3 id="historyTitle">修改历史</h3><button class="close-btn" id="closeHistoryDialog" type="button" aria-label="关闭修改历史">×</button></div>

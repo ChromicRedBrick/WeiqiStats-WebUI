@@ -84,7 +84,7 @@
       const teamCount = data.tournament?.id === 'cwql'
         ? (teams.length === historicalLeagueSize || regular.filter(row => row.after_round === latest).length === teams.length ? teams.length : 0)
         : teams.length;
-      return [teamCount && `${teamCount} 队`, `${editionPlayers(data).filter(p => !isGroupedPlayerLabel(p)).length} 人`,
+      return [teamCount && `${teamCount} 队`, `${mainStagePlayers(data).length} 人`,
         data.edition?.finals_type || '团体赛'].filter(Boolean).join(' · ');
     }
     const sizeLabel = data?.edition?.bracket_size ? `${data.edition.bracket_size} 人` : '';
@@ -109,6 +109,41 @@
     : String(m.result_detail || m.result_type || '胜').replace(/^(?:执)?[黑白](?:方)?/,'') || '胜';
   const editionPlayers = data => (data.roster || collectPlayers({edition:data})).slice().sort((a,b)=>a.name_zh.localeCompare(b.name_zh,'zh-CN'));
   const isGroupedPlayerLabel = player => /^(?:(?:[韩韓中日台]|韩国|中国|日本|外援)\s*\d+[-－—]\d+|台第[一二三四五六七八九十]+位|日大三冠)$/.test(player?.name_zh || '');
+  function mainStagePlayers(data) {
+    if (!data) return [];
+    const byId = new Map();
+    const add = p => {
+      if (p?.id && !isGroupedPlayerLabel(p) && !byId.has(p.id)) byId.set(p.id, p);
+    };
+    if (isTeamCompetition(data)) {
+      for (const t of data.team_competition?.teams || []) {
+        for (const p of t.players || []) add(p);
+      }
+      for (const r of roundsForView(data).mainRounds || []) {
+        for (const m of r.matches || []) {
+          [...participants(m), m.winner].forEach(add);
+          for (const g of m.subgames || []) [...participants(g), g.winner].forEach(add);
+        }
+      }
+    } else {
+      const {mainRounds} = roundsForView(data);
+      for (const r of mainRounds || []) {
+        for (const m of r.matches || []) {
+          [...participants(m), m.winner].forEach(add);
+          for (const g of m.subgames || []) [...participants(g), g.winner].forEach(add);
+        }
+      }
+      [data.champion, data.runner_up, data.third_place, data.fourth_place].forEach(add);
+      for (const grp of data.podium_groups || []) {
+        add(grp.champion);
+        add(grp.runner_up);
+      }
+      if (!byId.size && !(data.rounds || []).length) {
+        return editionPlayers(data).filter(p => !isGroupedPlayerLabel(p));
+      }
+    }
+    return [...byId.values()].sort((a, b) => (a.name_zh || '').localeCompare(b.name_zh || '', 'zh-CN'));
+  }
   const hasPlayer = (m, p) => participants(m).some(q => samePlayer(q, p));
   function singleGamePresentation(m) {
     // Individual game records can also carry the overall series score. Omit
@@ -180,7 +215,9 @@
       (round.matches?.length || ties.some(tie => tie.round_id === round.id)));
   }
   // 预选/复赛/资格赛等前置阶段在正赛前数月举行属正常口径，不按届次日期判冲突。
-  const PRELIM_ROUND_NAME = /预选|予選|预赛|复赛|资格|本选/;
+  // 初赛、选拔赛（含韩文 선발）与预选同属前置阶段；只影响日期归属判断，
+  // 不改变 isPrelimRound 的赛段归类。
+  const PRELIM_ROUND_NAME = /预选|予選|预赛|复赛|资格|本选|初赛|选拔|선발/;
   function isPrelimRoundName(name) { return PRELIM_ROUND_NAME.test(String(name || '')); }
   function prelimRoundIds(edition) {
     const ids = new Set();
@@ -194,8 +231,14 @@
     return !!d && ((start && d < start) || (end && d > end));
   }
   // 详情视图直接给“届次对象”（含 rounds）时用这个包装，自动带上预选轮次集合。
+  // 待核/未载赛段的日期不能按届次起止判冲突：该赛段本身尚未定性，日期异常
+  // 属于赛段归属问题，由占位/待核错误码承担，避免同一资料被重复判成跨届。
   function dateConflictInEdition(m, edition, prelimIds) {
     const view = edition?.edition ? edition : null;
+    if (view) {
+      const round = (view.rounds || []).find(item => item.id === m.round_id);
+      if (round && (isUnclassifiedRound(round) || isVagueRound(round))) return false;
+    }
     const core = view ? view.edition : edition;
     return dateConflict(m, core, prelimIds || (view ? prelimRoundIds(view) : null));
   }
@@ -1854,7 +1897,7 @@
     isPrelimRound, isUnclassifiedRound, isLeagueRound, isGroupTableRound, prelimRegionOf, prelimGroups, prelimGroupOf, prelimGroupTree, prelimTreeGroups, PRELIM_REGION_ORDER, roundDisplayName,
     aggregateSeries, finalSeries, seriesOutcomes, seriesGameLabel, singleGamePresentation, isFinalRound, sourceRoundsForView, roundsForView, renderedMatches, edgesForView, unconfirmedLinks, collectPlayers, doubleEliminationLanes, doubleEliminationBlocks, extractGroupDoubleElimination,
     supportsStageDrawView, compareDrawMatches, groupRoundMatchesForDrawView,
-    matchesPlayerQuery, findPlayer, comparePlayerGames, filterPlayerGames, playerGameRows, nativeNameHtml, isWorld, isCoreWorld, worldTier, isStrictEvent, WORLD_BOUNDARY_TOURNAMENTS, WORLD_TEAM_TOURNAMENTS, isTeamCompetition, isSingleGameFinal, editionFormatChip, categoryLabel, matchResult, winnerLabel, isNoResult, hasResult, bracketEdgesForView, editionPlayers, isGroupedPlayerLabel,
+    matchesPlayerQuery, findPlayer, comparePlayerGames, filterPlayerGames, playerGameRows, nativeNameHtml, isWorld, isCoreWorld, worldTier, isStrictEvent, WORLD_BOUNDARY_TOURNAMENTS, WORLD_TEAM_TOURNAMENTS, isTeamCompetition, isSingleGameFinal, editionFormatChip, categoryLabel, matchResult, winnerLabel, isNoResult, hasResult, bracketEdgesForView, editionPlayers, mainStagePlayers, isGroupedPlayerLabel,
     matchStatus, statusLabel, STATUS_LABELS, hydrateSnapshot};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.GoViewerModel = api;

@@ -3343,6 +3343,30 @@ body[data-view-mode] .round-col.team-results {
 .team-season-stats > div { padding: var(--space-4); border: 1px solid var(--border-color); background: var(--bg-secondary); }
 .team-season-stats span { display: block; color: var(--text-muted); font-size: var(--text-xs); }
 .team-season-stats strong { display: block; margin-top: var(--space-2); font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+.team-directory-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); align-items: start; gap: var(--space-4); margin-top: var(--space-3); }
+.team-card { min-width: 0; border: 1px solid var(--border-color); background: var(--card-bg); }
+.team-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-color); background: var(--bg-secondary); }
+.team-card-name { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.team-card-name h3 { margin: 0; font-size: var(--text-md); line-height: 1.45; overflow-wrap: anywhere; }
+.team-card-flag { display: inline-flex; flex-shrink: 0; }
+.team-card-honor { flex-shrink: 0; text-align: right; }
+.team-card-honor span { display: block; color: var(--text-muted); font-size: var(--text-xs); }
+.team-card-honor strong { display: block; color: var(--accent); font-size: var(--text-md); line-height: 1.4; }
+.team-card-record { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--border-color); }
+.team-card-record > div { min-width: 0; padding: var(--space-2) var(--space-3); }
+.team-card-record > div + div { border-left: 1px solid var(--border-color); }
+.team-card-record span { display: block; color: var(--text-muted); font-size: var(--text-xs); }
+.team-card-record strong { display: block; margin-top: var(--space-1); font-size: var(--text-md); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.team-roster-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.team-roster-table th { padding: var(--space-2); border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-weight: 400; text-align: center; white-space: nowrap; }
+.team-roster-table td { padding: var(--space-2); border-bottom: 1px solid var(--border-light); text-align: center; white-space: nowrap; }
+.team-roster-table tr:last-child td { border-bottom: 0; }
+.team-roster-table th:first-child, .team-roster-table td:first-child { text-align: left; }
+.team-roster-table td:first-child { overflow-wrap: anywhere; }
+.team-roster-table .team-player { color: var(--text-secondary); }
+.team-member-role { margin-left: var(--space-1); color: var(--text-muted); font-size: var(--text-xs); }
+.team-card-note { margin: 0; padding: var(--space-2) var(--space-3); border-top: 1px solid var(--border-light); color: var(--text-muted); font-size: var(--text-xs); }
+.team-card-empty { padding: var(--space-4) !important; color: var(--text-muted); text-align: center; }
 .team-scope-note, .team-round-meta { color: var(--text-muted); font-size: var(--text-xs); line-height: 1.7; }
 .team-table-scroll { overflow-x: auto; max-width: 100%; }
 .team-standing > .team-table-scroll { display: block; }
@@ -3373,7 +3397,7 @@ body[data-competition-view="team"] .bracket-toolbar { display: none; }
 .export-capture #canvas .team-controls, .export-capture #canvas .team-nav { display: none !important; }
 .export-capture #canvas .team-results [data-team-action] { display: none !important; }
 body.export-capture[data-view-mode] .round-col.team-results { width: max(60rem, calc(100vw - 24rem)); min-width: 60rem; }
-body.export-capture[data-view-mode] .round-col.team-results.nongshim-results { width: max-content; min-width: 56rem; }
+body.export-capture[data-view-mode] .round-col.team-results.nongshim-results { width: max-content; min-width: 64rem; }
 .export-capture #canvas .team-table-scroll { overflow: visible; max-width: none; }
 
 /* 5.2.1 农心杯擂台对阵图（维基百科阶梯对阵 & 连胜逐局表） */
@@ -3383,17 +3407,46 @@ body[data-view-mode] .round-col.team-results.nongshim-results {
 .nongshim-bracket {
   --nongshim-th-bg: #eaecf0;
   --nongshim-empty-bg: #f1f3f5;
+  --nongshim-alt-bg: #f8f8f8;
   --nongshim-champ-bg: #eef7d6;
   --nongshim-champ-border: #6b9e2b;
   --nongshim-champ-text: #275810;
+  --team-chn: #d4473f;
+  --team-chn-alt: #e67c75;
+  --team-kor: #2f6bd0;
+  --team-kor-alt: #6a96e0;
+  --team-jpn: #7a5ccc;
+  --team-jpn-alt: #a38de0;
+  --team-other: #1f9e8f;
+  --team-other-alt: #5cbeb2;
+  --team-other-2: #c77d24;
+  --team-fallback: var(--text-muted);
+  --nongshim-radius: 0px;
+  --nongshim-radius-sm: 0px;
+  --nongshim-bar-mix: 12%;
   color: var(--text-main);
 }
 body[data-theme="dark"] .nongshim-bracket {
   --nongshim-th-bg: var(--bg-tertiary);
   --nongshim-empty-bg: #14151a;
+  --nongshim-alt-bg: #212329;
   --nongshim-champ-bg: rgba(111, 211, 176, 0.14);
   --nongshim-champ-border: var(--accent-win);
   --nongshim-champ-text: var(--accent-win);
+  --team-chn: #ef6b62;
+  --team-chn-alt: #f59c95;
+  --team-kor: #5b8ef0;
+  --team-kor-alt: #8cb2f5;
+  --team-jpn: #a08bf0;
+  --team-jpn-alt: #bfb0f7;
+  --team-other: #4cc3b3;
+  --team-other-alt: #7dd8cc;
+  --team-other-2: #e39d45;
+}
+body[data-view-mode="modern"] .nongshim-bracket {
+  --nongshim-radius: var(--radius-lg);
+  --nongshim-radius-sm: var(--radius-sm);
+  --nongshim-bar-mix: 18%;
 }
 .nongshim-header {
   display: flex;
@@ -3509,7 +3562,8 @@ body[data-view-mode="modern"] .nongshim-team-card {
   padding: 0.125rem 0.25rem;
   border-radius: var(--radius-xs);
 }
-.nongshim-roster-item.is-eliminated .nongshim-roster-player {
+.nongshim-roster-item.is-eliminated .nongshim-roster-player,
+.nongshim-roster-item.is-unplayed .nongshim-roster-player {
   color: var(--text-muted);
 }
 .nongshim-roster-item.is-active .nongshim-roster-player {
@@ -3743,9 +3797,14 @@ body[data-view-mode="modern"] .nongshim-streak-table td {
 }
 .nongshim-bracket .nongshim-step-cell.is-player-active,
 .nongshim-bracket .nongshim-result-btn.is-player-active,
-.nongshim-bracket .is-player-active {
+.nongshim-bracket[data-nongshim-layout="table"] .is-player-active,
+.nongshim-bracket[data-nongshim-layout="ladder"] .is-player-active {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+.nongshim-bracket[data-nongshim-layout="lanes"] .is-player-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .nongshim-bracket .nongshim-result-btn.match-located,
 .nongshim-bracket .match-located {
@@ -3753,12 +3812,692 @@ body[data-view-mode="modern"] .nongshim-streak-table td {
   outline-offset: -2px;
   background: var(--accent-soft);
 }
-.export-capture #canvas .nongshim-bracket .is-player-active {
-  background: transparent !important;
+
+/* 新版擂台进程视图（lanes 样式） */
+.nongshim-summary {
+  margin-bottom: var(--space-4);
+}
+.nongshim-summary .nongshim-header {
+  margin-bottom: var(--space-2);
+}
+.nongshim-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.nongshim-kpi {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+body[data-view-mode="modern"] .nongshim-kpi {
+  border-radius: var(--radius-pill);
+}
+.nongshim-kpi-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.nongshim-kpi-tie {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.nongshim-kpi strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+.nongshim-kpi.is-live {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.nongshim-section {
+  margin-top: var(--space-5);
+}
+.nongshim-sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2-5);
+}
+.nongshim-sec-head h3 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.nongshim-sec-sub {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.nongshim-rosters {
+  grid-template-columns: repeat(var(--nongshim-team-count, 3), minmax(0, 1fr));
+  margin-bottom: 0;
+}
+.nongshim-team-card.is-lanes {
+  border-top: 3px solid var(--tc, var(--border-color));
+  border-radius: var(--nongshim-radius);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.nongshim-team-card.is-lanes.is-team-out {
+  opacity: 0.72;
+}
+.nongshim-team-card.is-lanes .nongshim-team-head {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.nongshim-team-card.is-lanes .nongshim-team-name {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.4rem;
+  min-width: 0;
+}
+.nongshim-team-record {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.nongshim-out-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.375rem;
+  border-radius: var(--nongshim-radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nongshim-team-left {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.nongshim-left-label,
+.nongshim-left-total {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.nongshim-left-num {
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--tc, var(--text-main));
+}
+.nongshim-roster-pips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.nongshim-roster-pip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem 0.15rem 0.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--canvas-bg);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.nongshim-roster-pip.is-unordered {
+  padding-left: 0.5rem;
+}
+body[data-view-mode="modern"] .nongshim-roster-pip {
+  border-radius: var(--radius-pill);
+}
+.nongshim-roster-pip .nongshim-roster-player {
+  font-weight: 600;
+}
+.nongshim-pip-idx {
+  font-style: normal;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--text-main) 8%, transparent);
+  color: var(--text-secondary);
+}
+body[data-view-mode="wiki"] .nongshim-pip-idx {
+  border-radius: 0;
+}
+.nongshim-roster-pip.is-eliminated {
+  opacity: 0.62;
+  border-style: dashed;
+  color: var(--text-muted);
+}
+.nongshim-roster-pip.is-eliminated .nongshim-roster-player {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.nongshim-roster-pip.is-live {
+  background: color-mix(in srgb, var(--tc) var(--nongshim-bar-mix), var(--canvas-bg));
+  border-color: var(--tc);
+}
+.nongshim-roster-pip.is-live .nongshim-pip-idx {
+  background: var(--tc);
+  color: #fff;
+}
+.nongshim-pip-tag {
+  font-style: normal;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+.nongshim-pip-tag.is-live {
+  color: var(--tc);
+}
+.nongshim-lanes-card,
+.nongshim-detail-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--nongshim-radius);
+  background: var(--bg-secondary);
+}
+.nongshim-lanes-card {
+  padding: var(--space-2);
+}
+.nongshim-lanes {
+  display: grid;
+  position: relative;
+  min-width: 100%;
+  width: max-content;
+  font-variant-numeric: tabular-nums;
+}
+.nongshim-lanes.is-compact {
+  --nongshim-col-min: 5rem;
+}
+.nongshim-lane-bg {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-color);
+  z-index: 0;
+}
+.nongshim-lane-bg.is-alt {
+  background: var(--nongshim-alt-bg);
+}
+.nongshim-lane-name {
+  grid-column: 1;
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.5rem 0 0.35rem;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.nongshim-lane-accent {
+  width: 3px;
+  height: 1.35rem;
+  flex: none;
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--tc, var(--border-color));
+}
+.nongshim-lane-stage {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.nongshim-lane-stage span {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.nongshim-lane-game {
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--nongshim-radius-sm);
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nongshim-lane-game:hover,
+.nongshim-lane-game.is-game-selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.nongshim-lane-game strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.nongshim-lane-game small {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+}
+.nongshim-sgf-tag {
+  display: inline-block;
+  padding: 0 0.22rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--nongshim-radius-sm);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.nongshim-lane-gap {
+  justify-self: center;
+  width: 0;
+  border-left: 2px dashed var(--border-light);
+  z-index: 1;
+}
+.nongshim-lane-conn {
+  justify-self: center;
+  width: 2px;
+  margin: 1.75rem 0;
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  z-index: 1;
+}
+.nongshim-lane-conn.is-void {
+  width: 0;
+  border-left: 2px dashed var(--border-light);
+  background: transparent;
+}
+.nongshim-lane-conn.is-game-selected {
+  width: 3px;
+  background: var(--accent);
+}
+.nongshim-lane-bar {
+  z-index: 3;
+  align-self: center;
+  min-width: 0;
+  height: 2.2rem;
+  margin: 0 0.25rem;
+  padding: 0 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--tc) 55%, transparent);
+  border-radius: var(--nongshim-radius-sm);
+  background: color-mix(in srgb, var(--tc) var(--nongshim-bar-mix), var(--bg-secondary));
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nongshim-bar-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nongshim-lane-bar .nongshim-streak-badge {
+  background: var(--tc);
+  color: #fff;
+  flex: none;
+}
+.nongshim-lane-bar.is-live {
+  position: relative;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 84%, transparent);
+  mask-image: linear-gradient(90deg, #000 84%, transparent);
+}
+.nongshim-bar-fade {
+  display: none;
+}
+.nongshim-lane-tail {
+  z-index: 3;
+  align-self: center;
+  padding-left: 0.25rem;
+  color: var(--tc);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.nongshim-lane-node {
+  z-index: 4;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.nongshim-lane-node.is-down {
+  align-self: end;
+  margin-bottom: 0.35rem;
+}
+.nongshim-lane-node.is-up {
+  align-self: start;
+  margin-top: 0.35rem;
+}
+.nongshim-lane-node .stone-icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  box-shadow: 0 0 0 2px var(--bg-secondary);
+}
+.nongshim-lane-node.is-decider .stone-icon {
+  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--nongshim-champ-border);
+}
+.nongshim-lane-node.is-game-selected .stone-icon {
+  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--accent);
+}
+.nongshim-lane-out {
+  z-index: 3;
+  align-self: center;
+  justify-self: center;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nongshim-lane-out.is-game-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.nongshim-out-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 500;
+}
+.nongshim-out-mark {
+  color: var(--tc);
+  font-weight: 700;
+}
+.nongshim-lane-out small {
+  display: block;
+  font-size: var(--text-2xs);
+  color: var(--tc);
+  font-weight: 600;
+}
+.nongshim-lane-void {
+  z-index: 3;
+  align-self: center;
+  justify-self: center;
+  padding: 0.15rem 0.45rem;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.nongshim-lane-scheduled {
+  z-index: 2;
+  align-self: stretch;
+  justify-self: stretch;
+  margin: 0.35rem 0.25rem;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--nongshim-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  padding: 0.25rem;
+}
+.nongshim-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-2) 0.15rem;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.nongshim-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.nongshim-legend-badge {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--team-chn);
+  color: #fff;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+.nongshim-detail {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.nongshim-detail th {
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+.nongshim-detail td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.nongshim-detail tbody tr:last-child td {
+  border-bottom: 0;
+}
+.nongshim-detail-stage td {
+  background: color-mix(in srgb, var(--text-main) 4%, transparent);
+  font-size: var(--text-xs);
+  padding: 0.35rem 0.65rem;
+}
+.nongshim-detail-stage span {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.nongshim-detail-row {
+  cursor: pointer;
+}
+.nongshim-detail-row td:first-child {
+  box-shadow: inset 3px 0 0 var(--tc, transparent);
+}
+.nongshim-detail-row:hover td,
+.nongshim-detail-row.is-game-selected td,
+.nongshim-detail-row.match-located td {
+  background: var(--accent-soft);
+}
+.nongshim-detail-num {
+  width: 4.25rem;
+  font-weight: 600;
+}
+.nongshim-detail-date {
+  width: 6.5rem;
+  color: var(--text-secondary);
+}
+.nongshim-detail-matchup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.nongshim-detail-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.nongshim-detail-player.is-winner .nongshim-player-btn,
+.nongshim-detail-player.is-winner .nongshim-player-name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+.nongshim-detail-player.is-loser .nongshim-player-btn,
+.nongshim-detail-player.is-loser .nongshim-player-name {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.nongshim-detail-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--nongshim-radius-sm);
+  background: color-mix(in srgb, var(--tc) 16%, transparent);
+  color: var(--tc);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+.nongshim-detail-vs {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  margin: 0 0.15rem;
+}
+.nongshim-detail-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.nongshim-detail-moves {
+  color: var(--text-muted);
+}
+.nongshim-detail-kifu,
+.nongshim-detail th:nth-child(5) {
+  width: 3.5rem;
+  text-align: center;
+}
+.nongshim-kifu-none {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.nongshim-kifu-btn {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--nongshim-radius-sm);
+  background: var(--canvas-bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+.nongshim-kifu-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.export-capture #canvas .nongshim-bracket .is-player-active,
+.export-capture #canvas .nongshim-bracket .is-game-selected {
+  outline: none !important;
   box-shadow: none !important;
 }
+.export-capture #canvas .nongshim-bracket .nongshim-lane-game.is-game-selected {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+.export-capture #canvas .nongshim-bracket .nongshim-lane-out.is-game-selected {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+.export-capture #canvas .nongshim-bracket .nongshim-lane-conn.is-game-selected {
+  width: 2px !important;
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent) !important;
+}
+.export-capture #canvas .nongshim-bracket .nongshim-lane-node.is-game-selected:not(.is-decider) .stone-icon {
+  box-shadow: 0 0 0 2px var(--bg-secondary) !important;
+}
+.export-capture #canvas .nongshim-bracket .nongshim-lane-node.is-decider.is-game-selected .stone-icon {
+  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--nongshim-champ-border) !important;
+}
+.export-capture #canvas .nongshim-bracket .nongshim-detail-row.is-game-selected td {
+  background: transparent !important;
+}
+.export-capture #canvas .nongshim-sgf-tag,
+.export-capture #canvas .nongshim-detail th:nth-child(5),
+.export-capture #canvas .nongshim-detail td:nth-child(5) {
+  display: none !important;
+}
+.export-capture #canvas .nongshim-bracket[data-nongshim-layout="table"] .is-player-active,
+.export-capture #canvas .nongshim-bracket[data-nongshim-layout="ladder"] .is-player-active {
+  background: transparent !important;
+}
 .export-capture #canvas .nongshim-teams-strip {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--nongshim-team-count, 3), minmax(0, 1fr));
+}
+.export-capture #canvas .nongshim-lanes {
+  width: max-content;
+  --nongshim-col-min: max-content;
+}
+.export-capture #canvas .nongshim-bar-name {
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+}
+.export-capture #canvas .nongshim-lane-bar.is-live {
+  -webkit-mask-image: none;
+  mask-image: none;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.export-capture #canvas .nongshim-bar-fade {
+  display: block;
+  position: absolute;
+  top: -1px;
+  right: 0;
+  bottom: -1px;
+  width: 2.5rem;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), #ffffff);
+}
+.export-capture #canvas .nongshim-lane-bar.is-alt-lane .nongshim-bar-fade {
+  background: linear-gradient(90deg, rgba(248, 248, 248, 0), #f8f8f8);
+}
+body[data-theme="dark"].export-capture #canvas .nongshim-bar-fade {
+  background: linear-gradient(90deg, rgba(27, 29, 35, 0), #1b1d23);
+}
+body[data-theme="dark"].export-capture #canvas .nongshim-lane-bar.is-alt-lane .nongshim-bar-fade {
+  background: linear-gradient(90deg, rgba(33, 35, 41, 0), #212329);
 }
 .nongshim-bracket caption.sr-only {
   position: absolute;
@@ -5222,7 +5961,22 @@ body.export-capture[data-view-mode] .round-col.league-results { width: max-conte
   padding: var(--space-2-5);
 }
 
+.roster-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2-5);
+}
+
+.roster-tab.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
 #rosterSummary {
+  margin: 0 0 var(--space-2-5);
   color: var(--text-muted);
   font-size: var(--text-sm);
 }

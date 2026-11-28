@@ -173,6 +173,16 @@
       Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', whiteSpace: 'nowrap'});
     } else if (source.matches('.gsl-qual-name, .gsl-match-label, .gsl-match-res')) {
       Object.assign(copy.style, {width: 'auto', whiteSpace: 'nowrap'});
+    } else if (source.matches('.nongshim-teams-strip')) {
+      Object.assign(copy.style, {height: 'auto', minHeight: '0', maxHeight: 'none', gridTemplateRows: 'auto', gridAutoRows: 'auto'});
+    } else if (source.matches('.nongshim-lanes') && source.style.gridTemplateRows) {
+      copy.style.gridTemplateRows = source.style.gridTemplateRows;
+    } else if (source.matches('.nongshim-team-card, .nongshim-team-head, .nongshim-team-name, .nongshim-roster-pips')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', minHeight: '0', maxHeight: 'none'});
+    } else if (source.matches('.nongshim-kpi, .nongshim-kpi-player, .nongshim-kpi-tie, .nongshim-team-left, .nongshim-roster-pip, .nongshim-rank-badge, .nongshim-champ-badge, .nongshim-out-badge, .nongshim-streak-badge, .nongshim-detail-badge, .nongshim-kifu-btn, .nongshim-lane-tail, .nongshim-lane-void')) {
+      Object.assign(copy.style, {width: 'auto', height: 'auto', minWidth: '0', maxWidth: 'none', minHeight: '0', maxHeight: 'none', whiteSpace: 'nowrap'});
+    } else if (source.matches('.nongshim-lane-stage, .nongshim-lane-game, .nongshim-lane-out, .nongshim-lane-bar')) {
+      Object.assign(copy.style, {height: 'auto', minWidth: '0', maxWidth: 'none', minHeight: '0', maxHeight: 'none'});
     } else if (source.matches('.wiki-pname, .player-name, .player-outcome, .match-date, .match-code, .finals-badge-title, .finals-score, .series-game-result, .series-game-date, .series-game-num, .wiki-date-label, .gsl-player-name')) {
       copy.style.width = 'auto';
     }
@@ -338,7 +348,7 @@
       const leagueWidth = liveGames
         ? Math.ceil(liveGames.scrollWidth + (liveGames.classList.contains('finals-games') ? 32 : 0)) : 0;
       // Layout containers can be as tall as the viewport; crop to painted bracket content.
-      const boxes = [...canvas.querySelectorAll('.round-header, .wiki-round-pill, .wiki-date-label, .match-card, .wiki-match-table, .wiki-r1-block-table, .wiki-third-title, .finals-container, .finals-champion, .wiki-finals-champion, .third-place-container, .series-node, .draw-date-group, .draw-final-plaque, .draw-champion-box, .draw-final-matchup, .draw-third-unit, .team-results, .team-results .team-board-table, .nongshim-bracket, .nongshim-teams-strip, .nongshim-stage, .nongshim-ladder-table, .nongshim-streak-table, .league-results, .league-table, .group-double-section, .stage-bridge, .gsl-card, .double-lane-divider')]
+      const boxes = [...canvas.querySelectorAll('.round-header, .wiki-round-pill, .wiki-date-label, .match-card, .wiki-match-table, .wiki-r1-block-table, .wiki-third-title, .finals-container, .finals-champion, .wiki-finals-champion, .third-place-container, .series-node, .draw-date-group, .draw-final-plaque, .draw-champion-box, .draw-final-matchup, .draw-third-unit, .team-results, .team-results .team-board-table, .nongshim-bracket, .nongshim-summary, .nongshim-teams-strip, .nongshim-lanes, .nongshim-detail, .nongshim-stage, .nongshim-ladder-table, .nongshim-streak-table, .league-results, .league-table, .group-double-section, .stage-bridge, .gsl-card, .double-lane-divider')]
         .filter(el => getComputedStyle(el).display !== 'none')
         .map(el => el.getBoundingClientRect()).filter(r => r.width && r.height);
       const left = Math.floor(Math.min(...boxes.map(r => (r.left - origin.left) / zoom)));
@@ -362,6 +372,8 @@
       if (document.body.dataset.finalsBadges === 'off') {
         copy.querySelectorAll('.finals-award-badge, .wiki-finals-champion').forEach(el => el.remove());
       }
+      copy.querySelectorAll('.nongshim-sgf-tag, .nongshim-detail th:nth-child(5), .nongshim-detail td:nth-child(5)').forEach(el => el.remove());
+      copy.querySelectorAll('.nongshim-detail-stage td[colspan="5"]').forEach(el => el.setAttribute('colspan', '4'));
       if (leagueWidth) {
         const copyLeague = copy.querySelector('.round-col.league-results');
         const copyFinals = copy.querySelector('.round-col.finals-wide');
@@ -402,13 +414,15 @@
         Object.assign(header.style, {width: width + 'px', padding: '22px 32px 16px', boxSizing: 'border-box',
           background, color: text, fontFamily: font, fontSize: '13px', lineHeight: '1.6'});
         if (isDraw) header.style.textAlign = 'center';
-        const summary = [['冠军', context.champion], ['亚军', context.runner], [context.scoreLabel || '决赛总比分', context.score]]
-          .filter(([, value]) => !isDraw || (value && value !== '—' && value !== '待定'))
-          .map(([label, value]) => `${escape(label)}：${escape(value || '—')}`).join('　');
+        const summary = [
+          context.statusText ? escape(context.statusText) : '',
+          ...[['冠军', context.champion], ['亚军', context.runner], [context.scoreLabel || '决赛总比分', context.score]]
+            .filter(([, value]) => value && value !== '待定' && (!isDraw || value !== '—'))
+            .map(([label, value]) => `${escape(label)}：${escape(value)}`)
+        ].filter(Boolean).join('　');
         header.innerHTML = `<h1 style="font-size:22px;line-height:1.4;margin:0 0 10px">${escape(context.title)}</h1>
         ${summary ? `<p style="margin:0">${summary}</p>` : ''}
-        <p style="margin:4px 0 0">${escape(context.period)}　${escape(context.rules)}</p>
-        ${context.notice ? `<p style="margin:6px 0 0;opacity:.75;font-size:12px">${escape(context.notice)}</p>` : ''}`;
+        <p style="margin:4px 0 0">${escape(context.period)}${context.rules ? `　${escape(context.rules)}` : ''}</p>`;
       }
       Object.assign(header.style, {position: 'fixed', left: '-100000px', top: '0', visibility: 'hidden'});
       document.body.appendChild(header); const headerHeight = Math.ceil(header.getBoundingClientRect().height); header.remove();
